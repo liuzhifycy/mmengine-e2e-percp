@@ -8,6 +8,8 @@ Models 模块 - 模型组件统一导出
 - voxel_encoders: PillarFeatureNet 体素特征编码
 - middle_encoders: PointPillarsScatter 散射到伪图像
 - backbones3d: SECOND 骨干网络
+- dense_heads3d: Anchor3DHead 3D 检测头
+- detectors3d: PointPillars 检测器
 """
 
 # 2D Detection
@@ -24,6 +26,8 @@ from .necks import FPN
 
 # 3D Detection (PointPillars)
 from .backbones3d import SECOND, SECONDFPN
+from .dense_heads3d import Anchor3DHead, Anchor3DRangeGenerator
+from .detectors3d import PointPillars
 from .middle_encoders import PointPillarsScatter
 from .voxel_encoders import DynamicPillarFeatureNet, PillarFeatureNet
 
@@ -52,4 +56,9 @@ __all__ = [
     # 3D Backbones
     "SECOND",
     "SECONDFPN",
+    # 3D Dense Heads
+    "Anchor3DHead",
+    "Anchor3DRangeGenerator",
+    # 3D Detectors
+    "PointPillars",
 ]
