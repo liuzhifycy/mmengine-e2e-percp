@@ -112,10 +112,12 @@ mmengine-lite/
 │   │   ├── datasets/          # 数据集配置
 │   │   ├── schedules/         # 训练策略配置
 │   │   └── default_runtime.py # 默认运行时配置
-│   └── retinanet/             # RetinaNet 完整配置
+│   ├── retinanet/             # RetinaNet 完整配置
+│   └── custom/                # 自定义模型配置示例
 ├── mmlite/                    # 核心包
 │   ├── datasets/              # 数据集模块
 │   ├── models/                # 模型模块
+│   │   └── custom/            # 自定义 Backbone/Head 示例
 │   ├── engine/                # 训练引擎
 │   └── evaluation/            # 评估指标
 ├── tools/                     # 工具脚本
@@ -123,6 +125,10 @@ mmengine-lite/
 │   ├── test.py                # 测试入口
 │   ├── visualize.py           # 可视化工具
 │   └── export_onnx.py         # ONNX 导出
+├── deploy/                    # 部署工具
+│   ├── onnx2trt.py            # ONNX 转 TensorRT
+│   └── trt_infer.py           # TensorRT 推理
+├── tests/                     # 单元测试
 ├── scripts/                   # Shell 脚本
 │   ├── dist_train.sh          # 分布式训练
 │   └── dist_test.sh           # 分布式测试
@@ -299,6 +305,28 @@ python tools/train.py configs/xxx.py \
 2. 在对应的 `__init__.py` 中注册导出
 3. 创建配置文件
 
+### 自定义模型示例
+
+项目包含自定义 Backbone 和 Head 的完整示例：
+
+```python
+# mmlite/models/custom/ 包含:
+# - SimpleCNNBackbone: 简单 CNN backbone (12.6M 参数)
+# - MobileNetLiteBackbone: 轻量级 backbone (2.2M 参数)
+# - SimpleDetectionHead: 简单检测头
+# - LightweightHead: 轻量级检测头 (深度可分离卷积)
+```
+
+使用自定义模型配置：
+
+```bash
+# SimpleCNN + SimpleDetectionHead
+python tools/train.py configs/custom/simplecnn_retinanet_1x_coco.py
+
+# MobileNetLite + LightweightHead (轻量级)
+python tools/train.py configs/custom/mobilenet_lite_1x_coco.py
+```
+
 ### 添加新数据集
 
 1. 在 `mmlite/datasets/` 中添加数据集类
@@ -310,6 +338,42 @@ python tools/train.py configs/xxx.py \
 1. 在 `mmlite/engine/hooks/` 中添加 Hook 类
 2. 使用 `@HOOKS.register_module()` 装饰器注册
 3. 在配置文件的 `custom_hooks` 中添加
+
+## TensorRT 部署
+
+### ONNX 转 TensorRT
+
+```bash
+# FP32 精度
+python deploy/onnx2trt.py exports/model.onnx -o exports/model_fp32.engine
+
+# FP16 精度 (推荐)
+python deploy/onnx2trt.py exports/model.onnx -o exports/model_fp16.engine --fp16
+
+# INT8 量化 (需要校准数据)
+python deploy/onnx2trt.py exports/model.onnx -o exports/model_int8.engine --int8 \
+    --calib-data data/coco/val2017 --calib-cache exports/calib.cache
+```
+
+### TensorRT 推理
+
+```bash
+# 性能测试
+python deploy/trt_infer.py exports/model_fp16.engine --benchmark
+
+# 图片推理
+python deploy/trt_infer.py exports/model_fp16.engine -i image.jpg -o output.jpg
+```
+
+## 单元测试
+
+```bash
+# 运行所有测试
+python -m pytest tests/ -v
+
+# 运行特定测试
+python -m pytest tests/test_models.py -v
+```
 
 ## 常见问题
 
