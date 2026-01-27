@@ -75,8 +75,18 @@ class ObjectRangeFilter:
         if len(gt_bboxes_3d) == 0:
             return results
 
-        # Assume gt_bboxes_3d has shape (N, 7) with (x, y, z, l, w, h, yaw)
-        centers = gt_bboxes_3d[:, :3]
+        # Handle both numpy arrays and LiDARInstance3DBoxes
+        # LiDARInstance3DBoxes has .center or .gravity_center property
+        if hasattr(gt_bboxes_3d, 'center'):
+            centers = gt_bboxes_3d.center.numpy() if hasattr(gt_bboxes_3d.center, 'numpy') else gt_bboxes_3d.center
+        elif hasattr(gt_bboxes_3d, 'gravity_center'):
+            centers = gt_bboxes_3d.gravity_center.numpy() if hasattr(gt_bboxes_3d.gravity_center, 'numpy') else gt_bboxes_3d.gravity_center
+        elif hasattr(gt_bboxes_3d, 'tensor'):
+            # Get centers from tensor (first 3 columns)
+            centers = gt_bboxes_3d.tensor[:, :3].numpy() if hasattr(gt_bboxes_3d.tensor, 'numpy') else gt_bboxes_3d.tensor[:, :3]
+        else:
+            # Assume numpy array with shape (N, 7)
+            centers = gt_bboxes_3d[:, :3]
 
         # Create range mask
         in_range_mask = (
@@ -150,9 +160,15 @@ class RandomFlip3D:
             points[:, 1] = -points[:, 1]
             if 'gt_bboxes_3d' in results:
                 gt_bboxes_3d = results['gt_bboxes_3d']
-                gt_bboxes_3d[:, 1] = -gt_bboxes_3d[:, 1]
-                # Flip yaw angle
-                gt_bboxes_3d[:, 6] = -gt_bboxes_3d[:, 6]
+                # Handle LiDARInstance3DBoxes - use flip method if available
+                if hasattr(gt_bboxes_3d, 'flip'):
+                    gt_bboxes_3d.flip('horizontal')
+                elif hasattr(gt_bboxes_3d, 'tensor'):
+                    gt_bboxes_3d.tensor[:, 1] = -gt_bboxes_3d.tensor[:, 1]
+                    gt_bboxes_3d.tensor[:, 6] = -gt_bboxes_3d.tensor[:, 6]
+                else:
+                    gt_bboxes_3d[:, 1] = -gt_bboxes_3d[:, 1]
+                    gt_bboxes_3d[:, 6] = -gt_bboxes_3d[:, 6]
                 results['gt_bboxes_3d'] = gt_bboxes_3d
 
         # Vertical flip (along x-axis)
@@ -160,8 +176,14 @@ class RandomFlip3D:
             points[:, 0] = -points[:, 0]
             if 'gt_bboxes_3d' in results:
                 gt_bboxes_3d = results['gt_bboxes_3d']
-                gt_bboxes_3d[:, 0] = -gt_bboxes_3d[:, 0]
-                gt_bboxes_3d[:, 6] = np.pi - gt_bboxes_3d[:, 6]
+                if hasattr(gt_bboxes_3d, 'flip'):
+                    gt_bboxes_3d.flip('vertical')
+                elif hasattr(gt_bboxes_3d, 'tensor'):
+                    gt_bboxes_3d.tensor[:, 0] = -gt_bboxes_3d.tensor[:, 0]
+                    gt_bboxes_3d.tensor[:, 6] = np.pi - gt_bboxes_3d.tensor[:, 6]
+                else:
+                    gt_bboxes_3d[:, 0] = -gt_bboxes_3d[:, 0]
+                    gt_bboxes_3d[:, 6] = np.pi - gt_bboxes_3d[:, 6]
                 results['gt_bboxes_3d'] = gt_bboxes_3d
 
         results['points'] = points
@@ -221,15 +243,34 @@ class GlobalRotScaleTrans:
         # Apply to bboxes
         if 'gt_bboxes_3d' in results:
             gt_bboxes_3d = results['gt_bboxes_3d']
-            # Rotate centers
-            gt_bboxes_3d[:, :3] = gt_bboxes_3d[:, :3] @ rot_mat.T
-            # Scale
-            gt_bboxes_3d[:, :3] *= scale
-            gt_bboxes_3d[:, 3:6] *= scale  # Scale dimensions
-            # Translate
-            gt_bboxes_3d[:, :3] += trans
-            # Rotate yaw
-            gt_bboxes_3d[:, 6] += rot_angle
+            
+            # Handle LiDARInstance3DBoxes - use methods if available
+            if hasattr(gt_bboxes_3d, 'rotate') and hasattr(gt_bboxes_3d, 'scale') and hasattr(gt_bboxes_3d, 'translate'):
+                gt_bboxes_3d.rotate(rot_angle)
+                gt_bboxes_3d.scale(scale)
+                gt_bboxes_3d.translate(trans)
+            elif hasattr(gt_bboxes_3d, 'tensor'):
+                # Direct tensor manipulation
+                tensor = gt_bboxes_3d.tensor
+                # Rotate centers
+                centers = tensor[:, :3].clone()
+                tensor[:, 0] = centers[:, 0] * np.cos(rot_angle) - centers[:, 1] * np.sin(rot_angle)
+                tensor[:, 1] = centers[:, 0] * np.sin(rot_angle) + centers[:, 1] * np.cos(rot_angle)
+                # Scale
+                tensor[:, :3] *= scale
+                tensor[:, 3:6] *= scale
+                # Translate
+                tensor[:, :3] += trans
+                # Rotate yaw
+                tensor[:, 6] += rot_angle
+            else:
+                # Numpy array
+                gt_bboxes_3d[:, :3] = gt_bboxes_3d[:, :3] @ rot_mat.T
+                gt_bboxes_3d[:, :3] *= scale
+                gt_bboxes_3d[:, 3:6] *= scale
+                gt_bboxes_3d[:, :3] += trans
+                gt_bboxes_3d[:, 6] += rot_angle
+            
             results['gt_bboxes_3d'] = gt_bboxes_3d
 
         results['points'] = points

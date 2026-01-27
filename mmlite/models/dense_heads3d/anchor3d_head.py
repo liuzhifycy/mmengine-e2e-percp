@@ -474,7 +474,18 @@ class Anchor3DHead(BaseModule):
         dir_targets = torch.zeros(num_anchors, dtype=torch.long, device=device)
         dir_weights = torch.zeros(num_anchors, dtype=torch.float, device=device)
 
-        if gt_bboxes_3d.numel() == 0:
+        # Check if gt_bboxes_3d is empty - handle both tensor and LiDARInstance3DBoxes
+        if hasattr(gt_bboxes_3d, 'tensor'):
+            gt_tensor = gt_bboxes_3d.tensor.to(device)
+            is_empty = gt_tensor.numel() == 0
+        elif hasattr(gt_bboxes_3d, 'numel'):
+            gt_tensor = gt_bboxes_3d.to(device) if hasattr(gt_bboxes_3d, 'to') else gt_bboxes_3d
+            is_empty = gt_tensor.numel() == 0
+        else:
+            gt_tensor = torch.as_tensor(gt_bboxes_3d, device=device, dtype=torch.float)
+            is_empty = gt_tensor.numel() == 0
+        
+        if is_empty:
             # No ground truth
             label_weights.fill_(1.0)
             return labels, label_weights, bbox_targets, bbox_weights, dir_targets, dir_weights, [], []
@@ -482,7 +493,7 @@ class Anchor3DHead(BaseModule):
         # Compute IoU between anchors and gt
         # Simplified: use center distance for assignment
         anchor_centers = anchors[:, :3]  # [N, 3]
-        gt_centers = gt_bboxes_3d[:, :3]  # [M, 3]
+        gt_centers = gt_tensor[:, :3]  # [M, 3]
 
         # Distance matrix [N, M]
         dist_matrix = torch.cdist(anchor_centers, gt_centers)
@@ -506,7 +517,7 @@ class Anchor3DHead(BaseModule):
 
             # Encode bbox targets
             pos_anchors = anchors[pos_inds]
-            pos_gt_bboxes = gt_bboxes_3d[assigned_gt[pos_inds]]
+            pos_gt_bboxes = gt_tensor[assigned_gt[pos_inds]]
             bbox_targets[pos_inds] = self.bbox_coder.encode(pos_anchors, pos_gt_bboxes)
 
             # Direction targets

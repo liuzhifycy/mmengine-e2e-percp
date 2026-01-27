@@ -120,9 +120,15 @@ class LoadPointsFromFile:
         import os
 
         pts_filename = results['lidar_points']['lidar_path']
-        # Handle relative paths by prepending data_root if available
-        if not os.path.isabs(pts_filename) and 'data_root' in results:
-            pts_filename = os.path.join(results['data_root'], pts_filename)
+        
+        # Only prepend data_root if:
+        # 1. Path is not absolute, AND
+        # 2. Path does not exist as-is, AND  
+        # 3. data_root is available
+        if not os.path.isabs(pts_filename) and not os.path.exists(pts_filename):
+            if 'data_root' in results:
+                pts_filename = os.path.join(results['data_root'], pts_filename)
+        
         points = self._load_points(pts_filename)
 
         # Select dimensions to use
