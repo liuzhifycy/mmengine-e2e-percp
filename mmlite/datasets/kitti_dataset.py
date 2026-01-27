@@ -1,6 +1,7 @@
 """KITTI Dataset - KITTI 3D 目标检测数据集
 
 支持 KITTI 3D 目标检测数据集的加载和处理。
+兼容 mmdet3d 的数据格式和 transforms。
 """
 
 import os
@@ -13,8 +14,18 @@ from mmengine.fileio import load
 from mmengine.registry import DATASETS
 from mmengine.structures import InstanceData
 
+# Try to import mmdet3d box types for compatibility
+try:
+    from mmdet3d.structures import LiDARInstance3DBoxes, get_box_type
+    HAS_MMDET3D = True
+except ImportError:
+    HAS_MMDET3D = False
+    LiDARInstance3DBoxes = None
+    get_box_type = None
+
 
 @DATASETS.register_module()
+@DATASETS.register_module('MMLiteKittiDataset')
 class KittiDataset(BaseDataset):
     """KITTI Dataset for 3D object detection.
 
@@ -36,6 +47,7 @@ class KittiDataset(BaseDataset):
 
     METAINFO = {
         "classes": ("Car", "Pedestrian", "Cyclist"),
+        "categories": {"Car": 0, "Pedestrian": 1, "Cyclist": 2},
         "palette": [(0, 255, 0), (255, 255, 0), (0, 255, 255)],
     }
 
@@ -54,9 +66,15 @@ class KittiDataset(BaseDataset):
         **kwargs,
     ) -> None:
         self.modality = modality
-        self.box_type_3d = box_type_3d
         self.filter_empty_gt = filter_empty_gt
         self.pcd_limit_range = pcd_limit_range
+
+        # Get box type class from string (for mmdet3d compatibility)
+        if HAS_MMDET3D and get_box_type is not None:
+            self.box_type_3d, self.box_mode_3d = get_box_type(box_type_3d)
+        else:
+            self.box_type_3d = box_type_3d
+            self.box_mode_3d = None
 
         # Update metainfo with classes if provided
         if metainfo is None:
@@ -64,6 +82,9 @@ class KittiDataset(BaseDataset):
         if classes is not None:
             metainfo["classes"] = classes
 
+        # Note: We don't store box_type_3d in metainfo to avoid checkpoint serialization issues
+        # The box_type_3d will be added to each sample's data_info in parse_data_info
+        
         super().__init__(
             data_root=data_root,
             ann_file=ann_file,
@@ -149,23 +170,31 @@ class KittiDataset(BaseDataset):
         # Data root for pipeline to construct full paths
         data_info["data_root"] = self.data_root
 
+        # Add box_type_3d (required by mmdet3d for NMS during inference)
+        data_info["box_type_3d"] = self.box_type_3d
+        if self.box_mode_3d is not None:
+            data_info["box_mode_3d"] = self.box_mode_3d
+
         # Point cloud path - keep lidar_points structure for pipeline
+        # mmdet3d's LoadPointsFromFile expects the full path in lidar_path
         if "lidar_points" in info:
             lidar_info = info["lidar_points"]
-            lidar_path = lidar_info.get("lidar_path", lidar_info.get("velodyne_path", ""))
+            lidar_rel_path = lidar_info.get("lidar_path", lidar_info.get("velodyne_path", ""))
+            lidar_full_path = osp.join(self.data_root, lidar_rel_path)
             data_info["lidar_points"] = {
-                "lidar_path": lidar_path,
+                "lidar_path": lidar_full_path,  # Full path for mmdet3d compatibility
                 "num_pts_feats": lidar_info.get("num_pts_feats", 4)
             }
         else:
-            lidar_path = info.get("velodyne_path", f"training/velodyne/{sample_idx}.bin")
+            lidar_rel_path = info.get("velodyne_path", f"training/velodyne/{sample_idx}.bin")
+            lidar_full_path = osp.join(self.data_root, lidar_rel_path)
             data_info["lidar_points"] = {
-                "lidar_path": lidar_path,
+                "lidar_path": lidar_full_path,
                 "num_pts_feats": 4
             }
 
         # Also keep lidar_path for compatibility
-        data_info["lidar_path"] = osp.join(self.data_root, data_info["lidar_points"]["lidar_path"])
+        data_info["lidar_path"] = data_info["lidar_points"]["lidar_path"]
 
         # Image path (optional)
         if self.modality.get("use_camera", False):
@@ -195,6 +224,14 @@ class KittiDataset(BaseDataset):
                 # Filter empty gt
                 if self.filter_empty_gt and len(gt_labels_3d) == 0:
                     return None
+
+                # Convert to mmdet3d box type if available
+                if HAS_MMDET3D and LiDARInstance3DBoxes is not None:
+                    gt_bboxes_3d = LiDARInstance3DBoxes(
+                        gt_bboxes_3d,
+                        box_dim=7,
+                        origin=(0.5, 0.5, 0.5)
+                    )
 
                 # Store annotations in ann_info for LoadAnnotations3D
                 data_info["ann_info"] = {

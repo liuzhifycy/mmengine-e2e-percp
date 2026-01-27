@@ -1,11 +1,14 @@
 # MMEngine-Lite
 
-一个轻量级的 MMEngine 训练框架模板，从 e2e-pecp-pdp 项目抽离而来，独立可迁移，支持目标检测模型的完整训练流程。
+一个轻量级的 MMEngine 训练框架模板，从 e2e-pecp-pdp 项目抽离而来，独立可迁移，支持 **2D 目标检测** 和 **3D 点云检测** 模型的完整训练流程。
 
 ## 特性
 
 - **轻量独立**: 不依赖特定业务代码，可直接迁移到其他项目
 - **功能完整**: 支持训练、推理、评估、可视化、ONNX导出
+- **2D 检测**: 支持 RetinaNet 等经典 2D 检测模型 (基于 mmdet)
+- **3D 检测**: 支持 PointPillars 等 3D 点云检测模型
+- **mmdet3d 混合模式**: 可使用 mmdet3d 的 CUDA 加速模型 + mmlite 的数据集
 - **灵活配置**: 基于 mmengine 配置系统，支持配置继承和覆盖
 - **分布式支持**: 支持单GPU和多GPU分布式训练
 - **断点续训**: 支持从 checkpoint 恢复训练
@@ -61,6 +64,9 @@ pip install pycocotools
 
 # ONNX 导出（可选）
 pip install onnx onnxruntime onnxsim
+
+# mmdet3d (可选，用于 3D 检测混合模式)
+pip install mmdet3d==1.4.0
 ```
 
 ### 5. 安装本项目
@@ -73,12 +79,13 @@ pip install -e .
 ### 快速安装脚本
 
 ```bash
-# 完整安装脚本
+# 完整安装脚本 (含 mmdet3d)
 conda create -n mmlite python=3.10 -y
 conda activate mmlite
 pip install torch==2.1.0 torchvision==0.16.0 --index-url https://download.pytorch.org/whl/cu121
 pip install mmcv==2.1.0 -f https://download.openmmlab.com/mmcv/dist/cu121/torch2.1.0/index.html
 pip install "numpy<2" mmengine mmdet pycocotools
+pip install mmdet3d==1.4.0  # 3D 检测支持
 pip install onnx onnxruntime onnxsim  # 可选
 pip install -e .
 ```
@@ -99,6 +106,12 @@ print(f'CUDA: {torch.cuda.is_available()}')
 # 测试 mmcv CUDA ops
 from mmcv.ops import nms
 print('mmcv CUDA ops: OK')
+# 测试 mmdet3d (可选)
+try:
+    import mmdet3d
+    print(f'mmdet3d: {mmdet3d.__version__}')
+except ImportError:
+    print('mmdet3d: not installed')
 "
 ```
 
@@ -112,26 +125,36 @@ mmengine-lite/
 │   │   ├── datasets/          # 数据集配置
 │   │   ├── schedules/         # 训练策略配置
 │   │   └── default_runtime.py # 默认运行时配置
-│   ├── retinanet/             # RetinaNet 完整配置
+│   ├── retinanet/             # RetinaNet 完整配置 (2D检测)
+│   ├── pointpillars/          # PointPillars 完整配置 (3D检测, 纯mmlite实现)
+│   ├── pointpillars_mmdet3d/  # PointPillars 混合配置 (mmdet3d模型+mmlite数据集)
 │   └── custom/                # 自定义模型配置示例
 ├── mmlite/                    # 核心包
 │   ├── datasets/              # 数据集模块
+│   │   ├── coco_dataset.py    # COCO 2D数据集
+│   │   ├── kitti_dataset.py   # KITTI 3D数据集 (兼容mmdet3d)
+│   │   └── pipelines/         # 数据处理流水线
 │   ├── models/                # 模型模块
+│   │   ├── detectors3d/       # 3D检测器 (PointPillars等)
+│   │   ├── voxel_encoders/    # 体素编码器
+│   │   ├── backbones3d/       # 3D骨干网络
+│   │   ├── dense_heads3d/     # 3D检测头
 │   │   └── custom/            # 自定义 Backbone/Head 示例
 │   ├── engine/                # 训练引擎
 │   └── evaluation/            # 评估指标
+│       └── kitti_metric.py    # KITTI 3D评估
 ├── tools/                     # 工具脚本
 │   ├── train.py               # 训练入口
 │   ├── test.py                # 测试入口
 │   ├── visualize.py           # 可视化工具
-│   └── export_onnx.py         # ONNX 导出
+│   ├── export_onnx.py         # ONNX 导出
+│   └── data_converter/        # 数据转换工具
 ├── deploy/                    # 部署工具
-│   ├── onnx2trt.py            # ONNX 转 TensorRT
-│   └── trt_infer.py           # TensorRT 推理
+├── data/                      # 数据目录
+│   ├── coco/                  # COCO数据集
+│   └── kitti/                 # KITTI数据集
 ├── tests/                     # 单元测试
 ├── scripts/                   # Shell 脚本
-│   ├── dist_train.sh          # 分布式训练
-│   └── dist_test.sh           # 分布式测试
 ├── requirements.txt
 ├── setup.py
 └── README.md
@@ -139,7 +162,7 @@ mmengine-lite/
 
 ## 数据准备
 
-### COCO 数据集
+### COCO 数据集 (2D检测)
 
 下载 COCO 2017 数据集并按如下结构组织：
 
@@ -162,6 +185,33 @@ mkdir -p data
 ln -s /path/to/coco data/coco
 ```
 
+### KITTI 数据集 (3D检测)
+
+下载 KITTI 3D Detection 数据集并按如下结构组织：
+
+```
+data/
+└── kitti/
+    ├── training/
+    │   ├── velodyne/          # 点云 (.bin)
+    │   ├── image_2/           # 图像 (.png)
+    │   ├── calib/             # 标定文件 (.txt)
+    │   └── label_2/           # 标注 (.txt)
+    ├── testing/
+    │   ├── velodyne/
+    │   ├── image_2/
+    │   └── calib/
+    ├── kitti_infos_train.pkl  # 训练集信息
+    └── kitti_infos_val.pkl    # 验证集信息
+```
+
+生成数据信息文件：
+
+```bash
+# 使用 mmlite 数据转换工具生成 pkl
+python tools/data_converter/create_demo_data_v2.py
+```
+
 ### 下载预训练权重
 
 ```bash
@@ -175,7 +225,7 @@ mim download mmdet --config retinanet_r50_fpn_1x_coco --dest ./checkpoints
 
 ## 快速开始
 
-### 训练
+### 2D 检测训练 (RetinaNet)
 
 ```bash
 # 单GPU训练
@@ -189,9 +239,33 @@ python tools/train.py configs/retinanet/retinanet_r50_fpn_1x_coco.py --amp
 
 # 断点续训
 python tools/train.py configs/retinanet/retinanet_r50_fpn_1x_coco.py --resume
-# 或指定 checkpoint
-python tools/train.py configs/retinanet/retinanet_r50_fpn_1x_coco.py --resume work_dirs/latest.pth
 ```
+
+### 3D 检测训练 (PointPillars)
+
+#### 方式1: 纯 mmlite 实现
+
+```bash
+# 使用 mmlite 自实现的 PointPillars (学习/调试用)
+python tools/train.py configs/pointpillars/pointpillars_hv_secfpn_8xb6_kitti-3d-3class.py
+```
+
+#### 方式2: mmdet3d 混合模式 (推荐)
+
+使用 mmdet3d 的 CUDA 加速模型 + mmlite 的数据集：
+
+```bash
+# 安装 mmdet3d (如未安装)
+pip install mmdet3d==1.4.0
+
+# 训练 (使用 mmdet3d 的 VoxelNet/PillarFeatureNet + mmlite 的 KittiDataset)
+python tools/train.py configs/pointpillars_mmdet3d/pointpillars_hybrid_v2.py
+```
+
+混合模式的优势：
+- 利用 mmdet3d 的 CUDA 加速体素化和特征提取
+- 保持 mmlite 数据集的灵活性和兼容性
+- 可以轻松扩展到其他 mmdet3d 支持的模型
 
 ### 分布式训练
 
@@ -430,6 +504,7 @@ tensorboard --logdir work_dirs/
 | mmcv | 2.1.0 | 使用预编译版本 |
 | mmengine | 0.10.7 | 最新稳定版 |
 | mmdet | 3.3.0 | 3.0-3.3 均可 |
+| mmdet3d | 1.4.0 | 可选，用于 3D 检测混合模式 |
 | NumPy | 1.26.4 | 必须 < 2.0 |
 
 ## 许可证
