@@ -109,22 +109,119 @@ class PointPillars(BaseModel):
 
         return x
 
+    def _prepare_inputs(self, inputs: Dict) -> Dict:
+        """Convert inputs to tensors and move to the correct device.
+
+        Args:
+            inputs (dict): Input dict with numpy arrays or lists.
+
+        Returns:
+            dict: Input dict with torch tensors.
+        """
+        import numpy as np
+
+        device = next(self.parameters()).device
+        prepared = {}
+
+        for key in ["voxels", "num_points", "coors"]:
+            if key not in inputs:
+                continue
+            value = inputs[key]
+
+            # Handle list from pseudo_collate (batch of samples)
+            if isinstance(value, list):
+                if len(value) == 1:
+                    value = value[0]
+                else:
+                    # Stack multiple samples - need to add batch index for coors
+                    if key == "coors":
+                        # Add batch index as first column
+                        coors_list = []
+                        for i, v in enumerate(value):
+                            if isinstance(v, np.ndarray):
+                                batch_idx = np.full((len(v), 1), i, dtype=v.dtype)
+                                v = np.concatenate([batch_idx, v], axis=1)
+                            else:
+                                batch_idx = torch.full((len(v), 1), i, dtype=v.dtype, device=v.device)
+                                v = torch.cat([batch_idx, v], dim=1)
+                            coors_list.append(v)
+                        value = np.concatenate(coors_list, axis=0) if isinstance(coors_list[0], np.ndarray) else torch.cat(coors_list, dim=0)
+                    else:
+                        value = np.concatenate(value, axis=0) if isinstance(value[0], np.ndarray) else torch.cat(value, dim=0)
+
+            # Convert numpy to tensor
+            if isinstance(value, np.ndarray):
+                if key == "num_points" or key == "coors":
+                    value = torch.from_numpy(value).long().to(device)
+                else:
+                    value = torch.from_numpy(value).float().to(device)
+            elif isinstance(value, torch.Tensor):
+                value = value.to(device)
+
+            # For coors, add batch index if not present (single sample case)
+            if key == "coors" and value.shape[-1] == 3:
+                batch_idx = torch.zeros((value.shape[0], 1), dtype=value.dtype, device=device)
+                value = torch.cat([batch_idx, value], dim=1)
+
+            prepared[key] = value
+
+        # Handle ground truth data - convert numpy to tensor
+        for key in ["gt_bboxes_3d", "gt_labels_3d"]:
+            if key not in inputs:
+                continue
+            value = inputs[key]
+
+            # Handle list from pseudo_collate
+            if isinstance(value, list):
+                converted = []
+                for v in value:
+                    if isinstance(v, np.ndarray):
+                        if key == "gt_labels_3d":
+                            v = torch.from_numpy(v).long().to(device)
+                        else:
+                            v = torch.from_numpy(v).float().to(device)
+                    elif isinstance(v, torch.Tensor):
+                        v = v.to(device)
+                    converted.append(v)
+                prepared[key] = converted
+            else:
+                if isinstance(value, np.ndarray):
+                    if key == "gt_labels_3d":
+                        value = torch.from_numpy(value).long().to(device)
+                    else:
+                        value = torch.from_numpy(value).float().to(device)
+                elif isinstance(value, torch.Tensor):
+                    value = value.to(device)
+                prepared[key] = [value]  # Wrap in list for batch processing
+
+        # Copy other fields
+        for key, value in inputs.items():
+            if key not in prepared:
+                prepared[key] = value
+
+        return prepared
+
     def forward(
         self,
-        inputs: Dict,
+        inputs: Dict = None,
         data_samples: Optional[List] = None,
         mode: str = "tensor",
+        **kwargs,
     ) -> Union[Dict, List, Tuple]:
         """Forward function.
 
+        mmengine's _run_forward passes all data_batch fields as kwargs,
+        so we need to extract voxels, num_points, coors from kwargs
+        and also extract gt_bboxes_3d, gt_labels_3d for training.
+
         Args:
-            inputs (dict): Input dict containing:
-                - voxels (Tensor): Voxelized point cloud.
-                - num_points (Tensor): Number of points in each voxel.
-                - coors (Tensor): Coordinates of voxels.
-                - batch_size (int): Batch size.
-            data_samples (list, optional): Data samples containing annotations.
+            inputs (dict): Input dict (may be None when data comes via kwargs).
+            data_samples (list, optional): Data samples (may be None).
             mode (str): Forward mode. Options: 'tensor', 'loss', 'predict'.
+            **kwargs: Data from DataLoader including:
+                - voxels, num_points, coors: Voxelized point cloud data.
+                - gt_bboxes_3d, gt_labels_3d: Ground truth for training.
+                - sample_idx, lidar_path, etc.: Metadata (ignored).
 
         Returns:
             Depending on mode:
@@ -132,6 +229,32 @@ class PointPillars(BaseModel):
                 - loss: Dict of losses.
                 - predict: List of predictions.
         """
+        # Handle case where inputs come as kwargs from mmengine's _run_forward
+        if inputs is None or len(inputs) == 0:
+            inputs = {}
+            # Extract voxel-related fields from kwargs
+            for key in ["voxels", "num_points", "coors", "batch_size"]:
+                if key in kwargs:
+                    inputs[key] = kwargs[key]
+
+        # Also extract ground truth from kwargs for training mode
+        if mode == "loss" and data_samples is None:
+            # Create pseudo data_samples from kwargs
+            gt_bboxes_3d = kwargs.get("gt_bboxes_3d", None)
+            gt_labels_3d = kwargs.get("gt_labels_3d", None)
+            if gt_bboxes_3d is not None and gt_labels_3d is not None:
+                # Store in inputs for forward_loss to use
+                inputs["gt_bboxes_3d"] = gt_bboxes_3d
+                inputs["gt_labels_3d"] = gt_labels_3d
+                inputs["metainfo"] = {
+                    k: v for k, v in kwargs.items()
+                    if k not in ["voxels", "num_points", "coors", "gt_bboxes_3d",
+                                 "gt_labels_3d", "batch_size", "mode"]
+                }
+
+        # Prepare inputs - convert numpy to tensor and handle pseudo_collate lists
+        inputs = self._prepare_inputs(inputs)
+
         if mode == "tensor":
             return self.forward_tensor(inputs)
         elif mode == "loss":
@@ -158,15 +281,14 @@ class PointPillars(BaseModel):
         return self.extract_feat(voxels, num_points, coors, batch_size)
 
     def forward_loss(
-        self, inputs: Dict, data_samples: List
+        self, inputs: Dict, data_samples: Optional[List] = None
     ) -> Dict[str, Tensor]:
         """Forward function for loss mode (training).
 
         Args:
             inputs (dict): Input dict containing voxels, num_points, coors.
-            data_samples (list): Data samples containing:
-                - gt_bboxes_3d (Tensor): Ground truth 3D bboxes.
-                - gt_labels_3d (Tensor): Ground truth labels.
+                May also contain gt_bboxes_3d, gt_labels_3d if data_samples is None.
+            data_samples (list, optional): Data samples containing ground truth.
 
         Returns:
             dict[str, Tensor]: Dict of losses.
@@ -174,7 +296,12 @@ class PointPillars(BaseModel):
         voxels = inputs["voxels"]
         num_points = inputs["num_points"]
         coors = inputs["coors"]
-        batch_size = inputs.get("batch_size", len(data_samples))
+
+        # Determine batch size
+        if data_samples is not None:
+            batch_size = inputs.get("batch_size", len(data_samples))
+        else:
+            batch_size = inputs.get("batch_size", 1)
 
         # Extract features
         x = self.extract_feat(voxels, num_points, coors, batch_size)
@@ -182,10 +309,24 @@ class PointPillars(BaseModel):
         # Get predictions from bbox head
         outs = self.bbox_head(x)
 
-        # Parse ground truth
-        gt_bboxes_3d = [ds.gt_bboxes_3d for ds in data_samples]
-        gt_labels_3d = [ds.gt_labels_3d for ds in data_samples]
-        input_metas = [ds.metainfo for ds in data_samples]
+        # Parse ground truth - from data_samples or inputs
+        if data_samples is not None:
+            gt_bboxes_3d = [ds.gt_bboxes_3d for ds in data_samples]
+            gt_labels_3d = [ds.gt_labels_3d for ds in data_samples]
+            input_metas = [ds.metainfo for ds in data_samples]
+        else:
+            # Ground truth from inputs (set by forward() from kwargs)
+            gt_bboxes_3d = inputs.get("gt_bboxes_3d")
+            gt_labels_3d = inputs.get("gt_labels_3d")
+            input_metas = inputs.get("metainfo", {})
+
+            # Wrap in lists if not already (for batch_size=1)
+            if gt_bboxes_3d is not None and not isinstance(gt_bboxes_3d, list):
+                gt_bboxes_3d = [gt_bboxes_3d]
+            if gt_labels_3d is not None and not isinstance(gt_labels_3d, list):
+                gt_labels_3d = [gt_labels_3d]
+            if not isinstance(input_metas, list):
+                input_metas = [input_metas]
 
         # Compute losses
         losses = self.bbox_head.loss(
@@ -318,11 +459,27 @@ class SingleStage3DDetector(BaseModel):
 
     def forward(
         self,
-        inputs: Dict,
+        inputs: Dict = None,
         data_samples: Optional[List] = None,
         mode: str = "tensor",
+        **kwargs,
     ) -> Union[Dict, List, Tuple]:
-        """Forward function with different modes."""
+        """Forward function with different modes.
+
+        Args:
+            inputs (dict): Input dict containing voxels, num_points, coors.
+            data_samples (list, optional): Data samples containing annotations.
+            mode (str): Forward mode. Options: 'tensor', 'loss', 'predict'.
+            **kwargs: Additional arguments from DataLoader (sample_idx, etc.).
+                These are ignored but accepted for compatibility with mmengine.
+        """
+        # Handle case where inputs come as kwargs from mmengine's _run_forward
+        if inputs is None:
+            inputs = {}
+            for key in ["voxels", "num_points", "coors", "batch_size"]:
+                if key in kwargs:
+                    inputs[key] = kwargs[key]
+
         if mode == "tensor":
             voxels = inputs["voxels"]
             num_points = inputs["num_points"]

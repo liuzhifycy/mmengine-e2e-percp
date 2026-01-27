@@ -221,7 +221,8 @@ class SECONDFPN(BaseModule):
         else:
             out = ups[0]
         
-        return out
+        # Return as tuple for consistency with FPN interface
+        return (out,)
 
 
 def build_upsample_layer(cfg, *args, **kwargs):

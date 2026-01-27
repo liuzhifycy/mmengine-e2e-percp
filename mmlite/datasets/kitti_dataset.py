@@ -81,8 +81,9 @@ class KittiDataset(BaseDataset):
         """
         data_list = []
 
-        # Try to load annotation file
-        ann_file_path = osp.join(self.data_root, self.ann_file)
+        # Note: BaseDataset already joins data_root + ann_file,
+        # so self.ann_file is already the full path
+        ann_file_path = self.ann_file
         if osp.exists(ann_file_path):
             annotations = load(ann_file_path)
             if isinstance(annotations, dict):
@@ -145,14 +146,26 @@ class KittiDataset(BaseDataset):
         sample_idx = info.get("sample_idx", info.get("image_idx", ""))
         data_info["sample_idx"] = sample_idx
 
-        # Point cloud path
+        # Data root for pipeline to construct full paths
+        data_info["data_root"] = self.data_root
+
+        # Point cloud path - keep lidar_points structure for pipeline
         if "lidar_points" in info:
             lidar_info = info["lidar_points"]
             lidar_path = lidar_info.get("lidar_path", lidar_info.get("velodyne_path", ""))
+            data_info["lidar_points"] = {
+                "lidar_path": lidar_path,
+                "num_pts_feats": lidar_info.get("num_pts_feats", 4)
+            }
         else:
-            lidar_path = info.get("velodyne_path", f"velodyne/{sample_idx}.bin")
+            lidar_path = info.get("velodyne_path", f"training/velodyne/{sample_idx}.bin")
+            data_info["lidar_points"] = {
+                "lidar_path": lidar_path,
+                "num_pts_feats": 4
+            }
 
-        data_info["lidar_path"] = osp.join(self.data_root, lidar_path)
+        # Also keep lidar_path for compatibility
+        data_info["lidar_path"] = osp.join(self.data_root, data_info["lidar_points"]["lidar_path"])
 
         # Image path (optional)
         if self.modality.get("use_camera", False):
@@ -167,7 +180,9 @@ class KittiDataset(BaseDataset):
         if "calib" in info:
             data_info["calib"] = info["calib"]
         else:
-            calib_path = osp.join(self.data_root, "calib", f"{sample_idx}.txt")
+            # Handle both int and str sample_idx
+            idx_str = f"{sample_idx:06d}" if isinstance(sample_idx, int) else str(sample_idx).zfill(6)
+            calib_path = osp.join(self.data_root, "training", "calib", f"{idx_str}.txt")
             if osp.exists(calib_path):
                 data_info["calib"] = self._load_calib(calib_path)
 
@@ -181,6 +196,12 @@ class KittiDataset(BaseDataset):
                 if self.filter_empty_gt and len(gt_labels_3d) == 0:
                     return None
 
+                # Store annotations in ann_info for LoadAnnotations3D
+                data_info["ann_info"] = {
+                    "gt_bboxes_3d": gt_bboxes_3d,
+                    "gt_labels_3d": gt_labels_3d,
+                }
+                # Also keep at top level for compatibility
                 data_info["gt_bboxes_3d"] = gt_bboxes_3d
                 data_info["gt_labels_3d"] = gt_labels_3d
 

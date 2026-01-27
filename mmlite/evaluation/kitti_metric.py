@@ -84,10 +84,11 @@ class KittiMetric(BaseMetric):
         """Convert data to numpy array."""
         if data is None:
             return np.array([])
+        # Handle PyTorch tensors - must move to CPU first if on GPU
+        if hasattr(data, "cpu"):
+            data = data.cpu()
         if hasattr(data, "numpy"):
             return data.numpy()
-        if hasattr(data, "cpu"):
-            return data.cpu().numpy()
         return np.array(data)
 
     def compute_metrics(self, results: List[Dict]) -> Dict[str, float]:

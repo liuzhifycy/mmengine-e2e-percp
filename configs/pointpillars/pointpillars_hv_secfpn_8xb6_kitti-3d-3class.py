@@ -184,8 +184,8 @@ test_pipeline = [
 
 # DataLoader 配置
 train_dataloader = dict(
-    batch_size=6,
-    num_workers=4,
+    batch_size=1,  # 使用 batch_size=1 避免 collate 问题
+    num_workers=2,
     persistent_workers=True,
     sampler=dict(type='DefaultSampler', shuffle=True),
     dataset=dict(
@@ -233,17 +233,17 @@ optim_wrapper = dict(
 param_scheduler = [
     dict(
         type='CosineAnnealingLR',
-        T_max=80,
+        T_max=3,  # 匹配 max_epochs
         eta_min=1e-5,
         begin=0,
-        end=80,
+        end=3,
         by_epoch=True,
         convert_to_iter_based=True,
     ),
 ]
 
 # 训练循环
-train_cfg = dict(type='EpochBasedTrainLoop', max_epochs=80, val_interval=2)
+train_cfg = dict(type='EpochBasedTrainLoop', max_epochs=3, val_interval=1)  # 恢复验证
 val_cfg = dict(type='ValLoop')
 test_cfg = dict(type='TestLoop')
 
@@ -269,7 +269,7 @@ log_processor = dict(type='LogProcessor', window_size=50, by_epoch=True)
 
 # 可视化
 vis_backends = [dict(type='LocalVisBackend')]
-visualizer = dict(type='Det3DLocalVisualizer', vis_backends=vis_backends, name='visualizer')
+visualizer = dict(type='Visualizer', vis_backends=vis_backends, name='visualizer')
 
 # 加载权重
 load_from = None

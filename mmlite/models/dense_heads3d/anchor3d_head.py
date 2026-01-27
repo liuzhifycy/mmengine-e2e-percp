@@ -114,8 +114,17 @@ class Anchor3DHead(BaseModule):
         self.num_anchors = self.anchor_generator.num_base_anchors
         self.box_code_size = 7  # [x, y, z, w, l, h, rot]
 
-        # Build bbox coder (simplified version)
-        self.bbox_coder = BBox3DCoder() if bbox_coder is None else bbox_coder
+        # Build bbox coder
+        if bbox_coder is None:
+            self.bbox_coder = BBox3DCoder()
+        elif isinstance(bbox_coder, dict):
+            # Build from config dict - support DeltaXYZWLHRBBoxCoder type
+            bbox_coder_type = bbox_coder.get("type", "BBox3DCoder")
+            # For now, we only support BBox3DCoder (same as DeltaXYZWLHRBBoxCoder)
+            self.bbox_coder = BBox3DCoder()
+        else:
+            # Already a coder instance
+            self.bbox_coder = bbox_coder
 
         # Build loss functions
         self.loss_cls = self._build_loss(
@@ -675,6 +684,14 @@ class Anchor3DHead(BaseModule):
         # NMS
         nms_thresh = cfg.get("nms_thr", 0.01)
         max_num = cfg.get("max_num", 500)
+        nms_pre = cfg.get("nms_pre", 1000)  # Limit boxes before NMS
+
+        # Limit number of boxes before NMS to save memory
+        if scores.shape[0] > nms_pre:
+            _, topk_inds = scores.topk(nms_pre)
+            scores = scores[topk_inds]
+            labels = labels[topk_inds]
+            bboxes = bboxes[topk_inds]
 
         keep_inds = self._nms_3d(bboxes, scores, nms_thresh)
         keep_inds = keep_inds[:max_num]

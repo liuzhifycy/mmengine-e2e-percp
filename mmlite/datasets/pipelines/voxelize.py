@@ -161,6 +161,9 @@ class VoxelGenerator:
         )
 
         results['voxels'] = voxels
+        results['coors'] = coordinates  # mmdet3d convention
+        results['num_points'] = num_points_per_voxel  # mmdet3d convention
+        # Also keep legacy names for backward compatibility
         results['voxel_coords'] = coordinates
         results['voxel_num_points'] = num_points_per_voxel
 

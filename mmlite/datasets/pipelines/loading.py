@@ -32,7 +32,16 @@ class LoadPointsFromFile:
     ):
         self.coord_type = coord_type
         self.load_dim = load_dim
-        self.use_dim = use_dim if use_dim is not None else list(range(load_dim))
+        # Handle different use_dim formats:
+        # - None: use all dimensions
+        # - int: use first N dimensions  
+        # - list: use specified dimensions
+        if use_dim is None:
+            self.use_dim = list(range(load_dim))
+        elif isinstance(use_dim, int):
+            self.use_dim = list(range(use_dim))
+        else:
+            self.use_dim = use_dim
         self.shift_height = shift_height
         self.use_color = use_color
         self.file_client_args = file_client_args
@@ -108,7 +117,12 @@ class LoadPointsFromFile:
         Returns:
             dict: Result dict with 'points' added.
         """
+        import os
+
         pts_filename = results['lidar_points']['lidar_path']
+        # Handle relative paths by prepending data_root if available
+        if not os.path.isabs(pts_filename) and 'data_root' in results:
+            pts_filename = os.path.join(results['data_root'], pts_filename)
         points = self._load_points(pts_filename)
 
         # Select dimensions to use
