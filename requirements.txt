@@ -20,8 +20,22 @@ torchvision==0.16.0
 mmengine>=0.10.0
 mmcv>=2.0.0rc4,<2.2.0
 mmdet>=3.0.0,<3.4.0
-# 3D 检测支持 (可选，用于完整的 PointPillars 训练)
-# mmdet3d>=1.2.0  # uncomment for full 3D detection support
+
+# =============================================================================
+# 3D 检测支持 (可选)
+# =============================================================================
+# mmdet3d 提供 CUDA 加速的 3D 检测组件（PointPillars, VoxelNet 等）
+# 安装方式:
+#   pip install mmdet3d>=1.2.0,<1.5.0
+#
+# 使用场景:
+#   - configs/pointpillars_mmdet3d/: 混合模式，使用 mmdet3d 模型 + mmlite 数据集
+#   - 推荐用于生产环境，利用 CUDA 加速体素化
+#
+# 如果不安装 mmdet3d:
+#   - 可以使用 configs/pointpillars/: 纯 mmlite 实现（纯 Python，无 CUDA 加速）
+# =============================================================================
+# mmdet3d>=1.2.0,<1.5.0  # uncomment for 3D detection with CUDA acceleration
 
 # NumPy (PyTorch 2.1 需要 NumPy 1.x)
 numpy>=1.20.0,<2.0.0
