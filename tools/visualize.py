@@ -51,9 +51,17 @@ import cv2
 import numpy as np
 import torch
 from mmengine.config import Config
-from mmengine.registry import MODELS, VISUALIZERS
+from mmengine.registry import MODELS, VISUALIZERS, DefaultScope
 from mmengine.runner import load_checkpoint
 from mmengine.visualization import Visualizer
+
+# 导入 mmdet 模型注册（确保 RetinaNet 等模型被注册）
+try:
+    import mmdet.models  # noqa: F401
+    MMDET_AVAILABLE = True
+except ImportError:
+    MMDET_AVAILABLE = False
+    print('警告: mmdet 未安装，部分检测模型可能无法使用')
 
 # 支持的图片格式
 IMG_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.bmp', '.tif', '.tiff', '.webp'}
@@ -165,6 +173,11 @@ def build_model(config, checkpoint, device):
         cfg = Config.fromfile(config)
     else:
         cfg = config
+    
+    # 设置默认 scope 为 mmdet（确保模型能被正确找到）
+    default_scope = cfg.get('default_scope', 'mmdet')
+    if MMDET_AVAILABLE:
+        DefaultScope.get_instance('visualize', scope_name=default_scope)
     
     # 构建模型
     model = MODELS.build(cfg.model)
