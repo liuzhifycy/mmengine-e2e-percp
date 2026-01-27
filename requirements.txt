@@ -20,6 +20,8 @@ torchvision==0.16.0
 mmengine>=0.10.0
 mmcv>=2.0.0rc4,<2.2.0
 mmdet>=3.0.0,<3.4.0
+# 3D 检测支持 (可选，用于完整的 PointPillars 训练)
+# mmdet3d>=1.2.0  # uncomment for full 3D detection support
 
 # NumPy (PyTorch 2.1 需要 NumPy 1.x)
 numpy>=1.20.0,<2.0.0
