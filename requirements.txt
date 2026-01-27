@@ -1,0 +1,46 @@
+# =============================================================================
+# MMEngine-Lite 依赖配置
+# =============================================================================
+# 安装方式:
+#   1. 使用预编译的 mmcv（推荐）：
+#      pip install torch==2.1.0 torchvision==0.16.0 --index-url https://download.pytorch.org/whl/cu121
+#      pip install mmcv==2.1.0 -f https://download.openmmlab.com/mmcv/dist/cu121/torch2.1.0/index.html
+#      pip install -r requirements.txt
+#
+#   2. 完整安装（见 README.md）
+# =============================================================================
+
+# Core dependencies
+# 注意: PyTorch 2.1.0 是最高兼容预编译 mmcv 的版本
+torch==2.1.0
+torchvision==0.16.0
+
+# MMEngine ecosystem
+# 注意: mmcv 需要使用预编译版本，见上方安装说明
+mmengine>=0.10.0
+mmcv>=2.0.0rc4,<2.2.0
+mmdet>=3.0.0,<3.4.0
+
+# NumPy (PyTorch 2.1 需要 NumPy 1.x)
+numpy>=1.20.0,<2.0.0
+
+# COCO evaluation
+pycocotools>=2.0.0
+
+# Visualization
+matplotlib>=3.5.0
+opencv-python>=4.5.0
+
+# Utilities
+scipy>=1.7.0
+tqdm>=4.60.0
+pyyaml>=5.4.0
+
+# ONNX export (optional)
+onnx>=1.12.0
+onnxruntime>=1.12.0
+onnxsim>=0.4.0
+
+# Logging (optional)
+tensorboard>=2.10.0
+# wandb>=0.13.0  # uncomment if using Weights & Biases
