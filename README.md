@@ -507,6 +507,147 @@ tensorboard --logdir work_dirs/
 | mmdet3d | 1.4.0 | 可选，用于 3D 检测混合模式 |
 | NumPy | 1.26.4 | 必须 < 2.0 |
 
+## Docker / Podman 容器化部署
+
+支持 Docker 和 Podman 两种容器引擎，脚本会自动检测并优先使用 Podman。
+
+### 构建镜像
+
+```bash
+# 构建镜像 (自动检测 docker/podman)
+./docker/build.sh
+
+# 指定镜像标签
+./docker/build.sh -t v1.0
+
+# 使用代理加速下载
+HTTP_PROXY=http://proxy:port ./docker/build.sh
+```
+
+### 运行容器
+
+```bash
+# 进入交互式 bash (默认)
+./docker/run.sh
+
+# 直接训练
+./docker/run.sh train configs/pointpillars/pointpillars_hv_secfpn_8xb6_kitti-3d-3class.py
+
+# 启动 Jupyter Notebook (后台运行)
+./docker/run.sh --detach jupyter
+# 访问 http://localhost:8888
+
+# 不使用 GPU
+./docker/run.sh --no-gpu bash
+
+# 指定自定义数据目录
+./docker/run.sh --data /mnt/datasets/kitti --work /mnt/outputs
+```
+
+### 目录挂载
+
+容器启动时自动挂载以下目录：
+
+| 本地目录 | 容器内目录 | 说明 |
+|---------|-----------|------|
+| `./` | `/workspace` | 项目代码 |
+| `./data` | `/workspace/data` | 数据集 |
+| `./work_dirs` | `/workspace/work_dirs` | 训练输出 |
+| `./checkpoints` | `/workspace/checkpoints` | 模型权重 |
+
+### 端口映射
+
+| 端口 | 用途 |
+|------|------|
+| 8888 | Jupyter Notebook |
+| 6006 | TensorBoard |
+
+### 镜像导出/导入
+
+适用于离线环境或迁移到其他机器：
+
+```bash
+# 导出镜像 (约 8-10 GB 压缩后)
+podman save mmlite:latest | gzip > mmlite.tar.gz
+# 或
+docker save mmlite:latest | gzip > mmlite.tar.gz
+
+# 导入镜像
+gunzip -c mmlite.tar.gz | podman load
+# 或
+gunzip -c mmlite.tar.gz | docker load
+```
+
+### Podman 特别说明
+
+如果你的公司不允许使用 Docker，可以使用 Podman 作为替代：
+
+```bash
+# Ubuntu/Debian 安装 Podman
+sudo apt-get update && sudo apt-get install -y podman
+
+# 配置镜像加速 (可选)
+mkdir -p ~/.config/containers
+cat > ~/.config/containers/registries.conf << 'EOF'
+unqualified-search-registries = ["docker.io"]
+
+[[registry]]
+prefix = "docker.io"
+location = "docker.io"
+
+[[registry.mirror]]
+location = "mirror.gcr.io"
+EOF
+```
+
+Podman 的优势：
+- 无需 root 权限 (rootless 模式)
+- 无需守护进程
+- 与 Docker 命令兼容
+- 更好的安全性
+
+### GPU 支持
+
+容器脚本会自动检测 GPU 并配置：
+
+- **Docker**: 使用 `--gpus all` 参数
+- **Podman**: 自动挂载 `/dev/nvidia*` 设备
+
+如需手动安装 NVIDIA Container Toolkit：
+
+```bash
+# Docker
+distribution=$(. /etc/os-release;echo $ID$VERSION_ID)
+curl -s -L https://nvidia.github.io/nvidia-docker/gpgkey | sudo apt-key add -
+curl -s -L https://nvidia.github.io/nvidia-docker/$distribution/nvidia-docker.list | \
+    sudo tee /etc/apt/sources.list.d/nvidia-docker.list
+sudo apt-get update && sudo apt-get install -y nvidia-container-toolkit
+sudo systemctl restart docker
+
+# Podman (需要 nvidia-container-toolkit)
+sudo nvidia-ctk cdi generate --output=/etc/cdi/nvidia.yaml
+```
+
+### Docker Compose (可选)
+
+支持使用 Docker Compose 管理多服务：
+
+```bash
+cd docker
+
+# 启动开发环境
+docker-compose up -d dev
+
+# 启动 Jupyter
+docker-compose up -d jupyter
+
+# 查看日志
+docker-compose logs -f
+
+# 停止所有服务
+docker-compose down
+```
+
 ## 许可证
 
 Apache License 2.0
