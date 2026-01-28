@@ -189,6 +189,13 @@ echo "  Work: ${WORK_DIR}"
 echo "  Checkpoints: ${CHECKPOINTS_DIR}"
 echo ""
 
+# 构建 ulimit 参数 (Podman rootless 不支持 memlock)
+ULIMIT_ARGS="--ulimit stack=67108864"
+if [ "$CONTAINER_ENGINE" = "docker" ]; then
+    # Docker 支持 memlock
+    ULIMIT_ARGS="$ULIMIT_ARGS --ulimit memlock=-1"
+fi
+
 # Run container
 $CONTAINER_ENGINE run \
     $DETACH \
@@ -197,12 +204,12 @@ $CONTAINER_ENGINE run \
     --name "$CONTAINER_NAME" \
     $GPU_ARGS \
     --shm-size=8g \
-    --ulimit memlock=-1 \
-    --ulimit stack=67108864 \
+    $ULIMIT_ARGS \
     -v "$(pwd):/workspace:Z" \
     -v "${DATA_DIR}:/workspace/data:Z" \
     -v "${WORK_DIR}:/workspace/work_dirs:Z" \
     -v "${CHECKPOINTS_DIR}:/workspace/checkpoints:Z" \
+    -w /workspace \
     -p 8888:8888 \
     -p 6006:6006 \
     -e DISPLAY=$DISPLAY \
