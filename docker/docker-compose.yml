@@ -1,0 +1,73 @@
+# =============================================================================
+# MMEngine-Lite Docker Compose 配置
+# =============================================================================
+# 使用方法:
+#   启动容器:     docker-compose up -d
+#   进入容器:     docker-compose exec mmlite bash
+#   停止容器:     docker-compose down
+#   查看日志:     docker-compose logs -f
+# =============================================================================
+
+version: '3.8'
+
+services:
+  mmlite:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: mmlite:latest
+    container_name: mmlite-dev
+    
+    # GPU 支持
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    
+    # 环境变量
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+      - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+    
+    # 挂载卷
+    volumes:
+      # 代码目录 (实时同步)
+      - ..:/workspace/mmlite
+      # 数据目录 (持久化)
+      - mmlite-data:/workspace/mmlite/data
+      # 工作目录 (持久化，保存 checkpoints)
+      - mmlite-workdirs:/workspace/mmlite/work_dirs
+      # 预训练模型缓存
+      - mmlite-checkpoints:/workspace/mmlite/checkpoints
+    
+    # 工作目录
+    working_dir: /workspace/mmlite
+    
+    # 保持容器运行
+    stdin_open: true
+    tty: true
+    
+    # 共享内存大小 (用于 DataLoader 多进程)
+    shm_size: '8gb'
+    
+    # 网络配置
+    networks:
+      - mmlite-network
+
+# 持久化卷
+volumes:
+  mmlite-data:
+    driver: local
+  mmlite-workdirs:
+    driver: local
+  mmlite-checkpoints:
+    driver: local
+
+# 网络
+networks:
+  mmlite-network:
+    driver: bridge
