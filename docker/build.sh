@@ -1,11 +1,11 @@
 #!/bin/bash
 # =============================================================================
-# MMEngine-Lite Docker 构建脚本
+# MMEngine-Lite Docker/Podman 构建脚本
 # =============================================================================
 # 使用方法:
 #   ./docker/build.sh              # 构建镜像
 #   ./docker/build.sh --no-cache   # 不使用缓存构建
-#   ./docker/build.sh --push       # 构建并推送到 Docker Hub
+#   ./docker/build.sh --push       # 构建并推送到 Registry
 # =============================================================================
 
 set -e
@@ -15,6 +15,18 @@ RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
+
+# 自动检测容器引擎 (优先使用 podman)
+if command -v podman &> /dev/null; then
+    CONTAINER_ENGINE="podman"
+elif command -v docker &> /dev/null; then
+    CONTAINER_ENGINE="docker"
+else
+    echo -e "${RED}错误: 未找到 docker 或 podman${NC}"
+    exit 1
+fi
+
+echo -e "${GREEN}使用容器引擎: ${YELLOW}${CONTAINER_ENGINE}${NC}"
 
 # 默认配置
 IMAGE_NAME="mmlite"
@@ -59,7 +71,7 @@ echo ""
 
 # 构建镜像
 echo -e "${GREEN}开始构建...${NC}"
-docker build \
+$CONTAINER_ENGINE build \
     ${NO_CACHE} \
     -t ${IMAGE_NAME}:${IMAGE_TAG} \
     -f ${DOCKERFILE} \
@@ -71,17 +83,17 @@ echo -e "${GREEN}构建完成!${NC}"
 echo -e "${GREEN}========================================${NC}"
 
 # 显示镜像信息
-docker images ${IMAGE_NAME}:${IMAGE_TAG}
+$CONTAINER_ENGINE images ${IMAGE_NAME}:${IMAGE_TAG}
 
 # 推送镜像 (可选)
 if [ "$PUSH" = true ]; then
     echo ""
-    echo -e "${GREEN}推送镜像到 Docker Hub...${NC}"
-    docker push ${IMAGE_NAME}:${IMAGE_TAG}
+    echo -e "${GREEN}推送镜像到 Registry...${NC}"
+    $CONTAINER_ENGINE push ${IMAGE_NAME}:${IMAGE_TAG}
 fi
 
 echo ""
 echo -e "${GREEN}使用方法:${NC}"
 echo -e "  运行容器:    ${YELLOW}./docker/run.sh${NC}"
-echo -e "  进入容器:    ${YELLOW}docker exec -it mmlite-dev bash${NC}"
-echo -e "  使用compose: ${YELLOW}cd docker && docker-compose up -d${NC}"
+echo -e "  进入容器:    ${YELLOW}$CONTAINER_ENGINE exec -it mmlite-dev bash${NC}"
+echo -e "  使用compose: ${YELLOW}cd docker && podman-compose up -d${NC} (需安装 podman-compose)"

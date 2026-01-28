@@ -1,11 +1,21 @@
 #!/bin/bash
-# run.sh - Run mmengine-lite Docker container
+# run.sh - Run mmengine-lite container (supports Docker and Podman)
 # Usage: ./run.sh [options] [command]
 
 set -e
 
+# 自动检测容器引擎 (优先使用 podman)
+if command -v podman &> /dev/null; then
+    CONTAINER_ENGINE="podman"
+elif command -v docker &> /dev/null; then
+    CONTAINER_ENGINE="docker"
+else
+    echo "错误: 未找到 docker 或 podman"
+    exit 1
+fi
+
 # Configuration
-IMAGE_NAME="${IMAGE_NAME:-mmengine-lite}"
+IMAGE_NAME="${IMAGE_NAME:-mmlite}"
 IMAGE_TAG="${IMAGE_TAG:-latest}"
 CONTAINER_NAME="${CONTAINER_NAME:-mmlite-dev}"
 
@@ -22,6 +32,8 @@ NC='\033[0m' # No Color
 
 print_usage() {
     echo "Usage: $0 [OPTIONS] [COMMAND]"
+    echo ""
+    echo "Container engine: $CONTAINER_ENGINE"
     echo ""
     echo "Options:"
     echo "  -h, --help          Show this help message"
@@ -48,7 +60,7 @@ print_usage() {
 
 # Parse arguments
 DETACH=""
-GPU_ARGS="--gpus all"
+USE_GPU=true
 COMMAND=""
 
 while [[ $# -gt 0 ]]; do
@@ -70,7 +82,7 @@ while [[ $# -gt 0 ]]; do
             shift 2
             ;;
         --no-gpu)
-            GPU_ARGS=""
+            USE_GPU=false
             shift
             ;;
         --data)
@@ -116,10 +128,13 @@ if [ -z "$COMMAND" ]; then
     COMMAND="/bin/bash"
 fi
 
+# 切换到项目根目录
+cd "$(dirname "$0")/.."
+
 # Check if image exists
-if ! docker image inspect "${IMAGE_NAME}:${IMAGE_TAG}" &> /dev/null; then
+if ! $CONTAINER_ENGINE image inspect "${IMAGE_NAME}:${IMAGE_TAG}" &> /dev/null; then
     echo -e "${RED}Error: Image ${IMAGE_NAME}:${IMAGE_TAG} not found.${NC}"
-    echo -e "${YELLOW}Please build the image first: ./build.sh${NC}"
+    echo -e "${YELLOW}Please build the image first: ./docker/build.sh${NC}"
     exit 1
 fi
 
@@ -127,20 +142,46 @@ fi
 mkdir -p "$DATA_DIR" "$WORK_DIR" "$CHECKPOINTS_DIR"
 
 # Check if container with same name is running
-if docker ps -q -f name="^${CONTAINER_NAME}$" | grep -q .; then
+if $CONTAINER_ENGINE ps -q -f name="^${CONTAINER_NAME}$" 2>/dev/null | grep -q .; then
     echo -e "${YELLOW}Container ${CONTAINER_NAME} is already running.${NC}"
     echo "Executing command in existing container..."
-    docker exec -it "$CONTAINER_NAME" $COMMAND
+    $CONTAINER_ENGINE exec -it "$CONTAINER_NAME" $COMMAND
     exit 0
 fi
 
 # Remove stopped container with same name
-if docker ps -aq -f name="^${CONTAINER_NAME}$" | grep -q .; then
+if $CONTAINER_ENGINE ps -aq -f name="^${CONTAINER_NAME}$" 2>/dev/null | grep -q .; then
     echo -e "${YELLOW}Removing stopped container ${CONTAINER_NAME}...${NC}"
-    docker rm "$CONTAINER_NAME"
+    $CONTAINER_ENGINE rm "$CONTAINER_NAME"
+fi
+
+# 构建 GPU 参数
+GPU_ARGS=""
+if [ "$USE_GPU" = true ]; then
+    if [ "$CONTAINER_ENGINE" = "podman" ]; then
+        # Podman 使用 CDI (Container Device Interface) 或 --device
+        if [ -d "/dev/nvidia0" ] || [ -c "/dev/nvidia0" ]; then
+            # 检查是否有 nvidia-container-toolkit for podman
+            if command -v nvidia-ctk &> /dev/null; then
+                GPU_ARGS="--device nvidia.com/gpu=all"
+            else
+                # 手动挂载 NVIDIA 设备
+                GPU_ARGS="--device /dev/nvidia0 --device /dev/nvidiactl --device /dev/nvidia-uvm"
+                # 添加所有 GPU 设备
+                for dev in /dev/nvidia[0-9]*; do
+                    [ -e "$dev" ] && GPU_ARGS="$GPU_ARGS --device $dev"
+                done
+            fi
+            GPU_ARGS="$GPU_ARGS --security-opt=label=disable"
+        fi
+    else
+        # Docker 使用 --gpus
+        GPU_ARGS="--gpus all"
+    fi
 fi
 
 echo -e "${GREEN}Starting container ${CONTAINER_NAME}...${NC}"
+echo "  Engine: ${CONTAINER_ENGINE}"
 echo "  Image: ${IMAGE_NAME}:${IMAGE_TAG}"
 echo "  GPU: ${GPU_ARGS:-disabled}"
 echo "  Data: ${DATA_DIR}"
@@ -149,7 +190,7 @@ echo "  Checkpoints: ${CHECKPOINTS_DIR}"
 echo ""
 
 # Run container
-docker run \
+$CONTAINER_ENGINE run \
     $DETACH \
     -it \
     --rm \
@@ -158,13 +199,15 @@ docker run \
     --shm-size=8g \
     --ulimit memlock=-1 \
     --ulimit stack=67108864 \
-    -v "$(pwd):/workspace" \
-    -v "${DATA_DIR}:/workspace/data" \
-    -v "${WORK_DIR}:/workspace/work_dirs" \
-    -v "${CHECKPOINTS_DIR}:/workspace/checkpoints" \
+    -v "$(pwd):/workspace:Z" \
+    -v "${DATA_DIR}:/workspace/data:Z" \
+    -v "${WORK_DIR}:/workspace/work_dirs:Z" \
+    -v "${CHECKPOINTS_DIR}:/workspace/checkpoints:Z" \
     -p 8888:8888 \
     -p 6006:6006 \
     -e DISPLAY=$DISPLAY \
     -e PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
+    -e NVIDIA_VISIBLE_DEVICES=all \
+    -e NVIDIA_DRIVER_CAPABILITIES=compute,utility \
     "${IMAGE_NAME}:${IMAGE_TAG}" \
     $COMMAND
