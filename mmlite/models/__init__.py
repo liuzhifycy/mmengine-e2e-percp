@@ -24,6 +24,12 @@ from .dense_heads import RetinaHead
 from .detectors import RetinaNet
 from .necks import FPN
 
+# YOLO11 (New)
+from .backbones.yolo11_csp_darknet import YOLO11CSPDarknet
+from .necks.yolo11_pafpn import YOLO11PAFPN
+from .dense_heads.yolo11_head import YOLO11Head
+from .detectors.yolo11 import YOLO11
+
 # 3D Detection (PointPillars)
 from .backbones3d import SECOND, SECONDFPN
 from .dense_heads3d import Anchor3DHead, Anchor3DRangeGenerator
@@ -35,18 +41,22 @@ __all__ = [
     # === 2D Detection ===
     # Backbones
     "ResNet",
+    "YOLO11CSPDarknet",
     # Custom Backbones
     "SimpleCNNBackbone",
     "MobileNetLiteBackbone",
     # Necks
     "FPN",
+    "YOLO11PAFPN",
     # Dense Heads
     "RetinaHead",
+    "YOLO11Head",
     # Custom Heads
     "SimpleDetectionHead",
     "LightweightHead",
     # Detectors
     "RetinaNet",
+    "YOLO11",
     # === 3D Detection (PointPillars) ===
     # Voxel Encoders
     "PillarFeatureNet",

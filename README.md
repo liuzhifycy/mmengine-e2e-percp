@@ -8,6 +8,7 @@
 - **功能完整**: 支持训练、推理、评估、可视化、ONNX导出
 - **2D 检测**: 支持 RetinaNet 等经典 2D 检测模型 (基于 mmdet)
 - **3D 检测**: 支持 PointPillars 等 3D 点云检测模型
+- **YOLO11 集成**: 支持 YOLO11m 的原生复现与官方权重无损迁移 (Re-implementation)
 - **mmdet3d 混合模式**: 可使用 mmdet3d 的 CUDA 加速模型 + mmlite 的数据集
 - **灵活配置**: 基于 mmengine 配置系统，支持配置继承和覆盖
 - **分布式支持**: 支持单GPU和多GPU分布式训练
@@ -67,6 +68,9 @@ pip install onnx onnxruntime onnxsim
 
 # mmdet3d (可选，用于 3D 检测混合模式)
 pip install mmdet3d==1.4.0
+
+# Ultralytics (用于 YOLO11 权重转换)
+pip install ultralytics
 ```
 
 ### 5. 安装本项目
@@ -84,7 +88,7 @@ conda create -n mmlite python=3.10 -y
 conda activate mmlite
 pip install torch==2.1.0 torchvision==0.16.0 --index-url https://download.pytorch.org/whl/cu121
 pip install mmcv==2.1.0 -f https://download.openmmlab.com/mmcv/dist/cu121/torch2.1.0/index.html
-pip install "numpy<2" mmengine mmdet pycocotools
+pip install "numpy<2" mmengine mmdet pycocotools ultralytics
 pip install mmdet3d==1.4.0  # 3D 检测支持
 pip install onnx onnxruntime onnxsim  # 可选
 pip install -e .
@@ -121,42 +125,38 @@ except ImportError:
 mmengine-lite/
 ├── configs/                    # 配置文件
 │   ├── _base_/                # 基础配置
-│   │   ├── models/            # 模型配置
-│   │   ├── datasets/          # 数据集配置
-│   │   ├── schedules/         # 训练策略配置
-│   │   └── default_runtime.py # 默认运行时配置
 │   ├── retinanet/             # RetinaNet 完整配置 (2D检测)
 │   ├── pointpillars/          # PointPillars 完整配置 (3D检测, 纯mmlite实现)
 │   ├── pointpillars_mmdet3d/  # PointPillars 混合配置 (mmdet3d模型+mmlite数据集)
+│   ├── yolo11/                # YOLO11 配置 (New)
+│   │   ├── yolo11m_coco_reimpl.py # 基础模型配置
+│   │   └── yolo11m_coco_train.py  # 训练任务配置
 │   └── custom/                # 自定义模型配置示例
 ├── mmlite/                    # 核心包
 │   ├── datasets/              # 数据集模块
 │   │   ├── coco_dataset.py    # COCO 2D数据集
-│   │   ├── kitti_dataset.py   # KITTI 3D数据集 (兼容mmdet3d)
-│   │   └── pipelines/         # 数据处理流水线
+│   │   └── ...
 │   ├── models/                # 模型模块
-│   │   ├── detectors3d/       # 3D检测器 (PointPillars等)
-│   │   ├── voxel_encoders/    # 体素编码器
-│   │   ├── backbones3d/       # 3D骨干网络
-│   │   ├── dense_heads3d/     # 3D检测头
-│   │   └── custom/            # 自定义 Backbone/Head 示例
-│   ├── engine/                # 训练引擎
-│   └── evaluation/            # 评估指标
-│       └── kitti_metric.py    # KITTI 3D评估
+│   │   ├── backbones/
+│   │   │   └── yolo11_csp_darknet.py # YOLO11 Backbone
+│   │   ├── necks/
+│   │   │   └── yolo11_pafpn.py       # YOLO11 Neck
+│   │   ├── dense_heads/
+│   │   │   └── yolo11_head.py        # YOLO11 Head
+│   │   ├── detectors/
+│   │   │   └── yolo11.py             # YOLO11 Detector
+│   │   ├── losses/
+│   │   │   └── yolo_loss.py          # YOLO11 Loss (TAL/DFL)
+│   │   ├── layers/
+│   │   │   └── yolo11_layers.py      # YOLO11 Layers (C3k2, C2PSA)
+│   │   └── ...
 ├── tools/                     # 工具脚本
 │   ├── train.py               # 训练入口
-│   ├── test.py                # 测试入口
-│   ├── visualize.py           # 可视化工具
-│   ├── export_onnx.py         # ONNX 导出
-│   └── data_converter/        # 数据转换工具
-├── deploy/                    # 部署工具
+│   ├── convert_yolo11_weights.py # YOLO11 权重转换脚本 (New)
+│   └── ...
 ├── data/                      # 数据目录
 │   ├── coco/                  # COCO数据集
 │   └── kitti/                 # KITTI数据集
-├── tests/                     # 单元测试
-├── scripts/                   # Shell 脚本
-├── requirements.txt
-├── setup.py
 └── README.md
 ```
 
@@ -224,6 +224,25 @@ mim download mmdet --config retinanet_r50_fpn_1x_coco --dest ./checkpoints
 ```
 
 ## 快速开始
+
+### YOLO11 检测训练 (迁移学习)
+
+基于 Ultralytics 官方权重进行迁移学习：
+
+1.  **转换权重**: 将官方 `yolo11m.pt` 转换为 mmlite 格式
+    ```bash
+    # 确保 mmlite 已安装 (pip install -e .)
+    PYTHONPATH=. python tools/convert_yolo11_weights.py
+    # 输出: yolo11m_mm.pth
+    ```
+
+2.  **启动训练**:
+    ```bash
+    python tools/train.py configs/yolo11/yolo11m_coco_train.py
+    ```
+
+3.  **验证**:
+    训练完成后，Checkpoints 将保存在 `work_dirs/yolo11m_coco_transfer/`。
 
 ### 2D 检测训练 (RetinaNet)
 
