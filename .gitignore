@@ -91,3 +91,5 @@ download_complete.txt
 # Temporary files
 *.tmp
 *.temp
+*.pt
+vis_comparison/

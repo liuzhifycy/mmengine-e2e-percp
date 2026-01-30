@@ -244,6 +244,17 @@ mim download mmdet --config retinanet_r50_fpn_1x_coco --dest ./checkpoints
 3.  **验证**:
     训练完成后，Checkpoints 将保存在 `work_dirs/yolo11m_coco_transfer/`。
 
+### 验证 YOLO11 迁移
+
+使用 `tools/compare_yolo11_vis.py` 脚本对比 `ultralytics` 原版模型与 `mmlite` 复现版本的推理结果：
+
+```bash
+# 确保已安装 ultralytics 且有 COCO 验证集图片
+python tools/compare_yolo11_vis.py
+```
+
+该脚本会随机选取 5 张图片，分别使用两个模型进行推理，并将对比结果（包含检测框可视化和置信度输出）保存在 `vis_comparison/` 目录下。
+
 ### 2D 检测训练 (RetinaNet)
 
 ```bash
