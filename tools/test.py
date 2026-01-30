@@ -32,10 +32,19 @@ MMEngine-Lite 测试/推理入口脚本
 import argparse
 import os
 import os.path as osp
+import sys
+
+# 确保 mmlite 包可以被导入
+sys.path.insert(0, osp.dirname(osp.dirname(osp.abspath(__file__))))
 
 from mmengine.config import Config, DictAction
 from mmengine.registry import RUNNERS
 from mmengine.runner import Runner
+
+# 导入 mmlite 模块以触发注册
+import mmlite.datasets  # noqa: F401
+import mmlite.evaluation  # noqa: F401
+import mmlite.models  # noqa: F401
 
 
 def parse_args():

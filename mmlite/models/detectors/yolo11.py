@@ -37,8 +37,17 @@ class YOLO11(BaseModel):
         return self.bbox_head.loss(x, data_samples)
 
     def predict(self, inputs, data_samples, rescale=True):
-        # TODO: Implement full post-processing (NMS)
-        # For now, return raw outputs wrapper
         x = self.extract_feat(inputs)
         preds = self.bbox_head(x)
-        return preds # Placeholder
+        
+        # Test Config (Should be passed in init, but hardcoded default for now)
+        test_cfg = dict(score_thr=0.001, nms=dict(type='nms', iou_threshold=0.65), max_per_img=300)
+        
+        batch_img_metas = [ds.metainfo for ds in data_samples]
+        
+        results_list = self.bbox_head.predict_by_feat(preds, batch_img_metas, cfg=test_cfg, rescale=rescale)
+        
+        for data_sample, pred_instances in zip(data_samples, results_list):
+            data_sample.pred_instances = pred_instances
+            
+        return data_samples
