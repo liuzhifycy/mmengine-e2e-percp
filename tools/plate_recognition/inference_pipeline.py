@@ -19,7 +19,59 @@ from pathlib import Path
 
 import cv2
 import numpy as np
+from PIL import Image, ImageDraw, ImageFont
 import hyperlpr3 as lpr3
+
+
+def get_chinese_font(size=24):
+    """Get a font that supports Chinese characters."""
+    font_paths = [
+        "/usr/share/fonts/opentype/noto/NotoSerifCJK-Bold.ttc",
+        "/usr/share/fonts/truetype/arphic/uming.ttc",
+        "/usr/share/fonts/truetype/arphic/ukai.ttc",
+        "/usr/share/fonts/truetype/droid/DroidSansFallbackFull.ttf",
+    ]
+    for font_path in font_paths:
+        if os.path.exists(font_path):
+            try:
+                return ImageFont.truetype(font_path, size)
+            except Exception:
+                continue
+    # Fallback to default font
+    return ImageFont.load_default()
+
+
+def put_chinese_text(img, text, position, font_size=24, color=(0, 255, 0)):
+    """
+    Draw Chinese text on an OpenCV image using PIL.
+    
+    Args:
+        img: OpenCV image (BGR format)
+        text: Text to draw (supports Chinese)
+        position: (x, y) position for text
+        font_size: Font size
+        color: Text color in BGR format
+        
+    Returns:
+        Modified image
+    """
+    # Convert BGR to RGB
+    img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+    pil_img = Image.fromarray(img_rgb)
+    draw = ImageDraw.Draw(pil_img)
+    
+    # Get font
+    font = get_chinese_font(font_size)
+    
+    # Convert BGR color to RGB
+    color_rgb = (color[2], color[1], color[0])
+    
+    # Draw text
+    draw.text(position, text, font=font, fill=color_rgb)
+    
+    # Convert back to BGR
+    result = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
+    return result
 
 # Add mmengine-lite to path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
@@ -195,46 +247,65 @@ class PlateRecognitionPipeline:
         
         return result
     
-    def visualize_result(self, image_path: str, result: dict, output_path: str = None):
+    def visualize_result(self, image_path: str, result: dict, output_path: str = None,
+                         gt_plate: str = None, show_comparison: bool = False):
         """
-        Visualize detection and recognition results.
+        Visualize detection and recognition results with Chinese text support.
         
         Args:
             image_path: Path to input image
             result: Pipeline result dictionary
             output_path: Path to save visualization (optional)
+            gt_plate: Ground truth plate number (optional)
+            show_comparison: Whether to show GT vs Pred comparison
         """
         image = cv2.imread(image_path)
+        if image is None:
+            return None
+        
+        font_size = 28
         
         for plate in result.get('plates', []):
             bbox = plate['bbox']
             x1, y1, x2, y2 = bbox[:4] if len(bbox) == 4 else bbox
             
             # Draw bounding box
-            cv2.rectangle(image, (int(x1), int(y1)), (int(x2), int(y2)), (0, 255, 0), 2)
+            cv2.rectangle(image, (int(x1), int(y1)), (int(x2), int(y2)), (0, 255, 0), 3)
             
-            # Draw plate number
+            # Draw plate number using PIL for Chinese support
             plate_text = plate.get('plate_number', 'Unknown')
             if plate_text:
-                # Put text above the box
-                font = cv2.FONT_HERSHEY_SIMPLEX
-                font_scale = 0.8
-                thickness = 2
+                # Prepare display text
+                conf = plate.get('recognition_confidence', 0)
+                if show_comparison and gt_plate:
+                    is_correct = (plate_text == gt_plate)
+                    status = "OK" if is_correct else "X"
+                    display_text = f"Pred: {plate_text} [{status}]"
+                    color = (0, 255, 0) if is_correct else (0, 0, 255)
+                else:
+                    display_text = f"{plate_text} ({conf:.2f})"
+                    color = (0, 255, 0)
                 
-                # Get text size
-                (text_w, text_h), _ = cv2.getTextSize(plate_text, font, font_scale, thickness)
+                # Draw background rectangle for text
+                text_y = max(int(y1) - 35, 5)
+                cv2.rectangle(image, (int(x1), text_y), 
+                            (int(x1) + len(display_text) * 18, text_y + 32), 
+                            (255, 255, 255), -1)
                 
-                # Draw background rectangle
-                cv2.rectangle(image, (int(x1), int(y1) - text_h - 10), 
-                            (int(x1) + text_w, int(y1)), (0, 255, 0), -1)
-                
-                # Draw text
-                cv2.putText(image, plate_text, (int(x1), int(y1) - 5),
-                           font, font_scale, (0, 0, 0), thickness)
+                # Draw text using PIL
+                image = put_chinese_text(image, display_text, 
+                                        (int(x1) + 2, text_y + 2), 
+                                        font_size=font_size, color=color)
+        
+        # Draw ground truth at the bottom if provided
+        if gt_plate:
+            h, w = image.shape[:2]
+            gt_text = f"GT: {gt_plate}"
+            cv2.rectangle(image, (0, h - 40), (len(gt_text) * 18 + 10, h), (255, 255, 255), -1)
+            image = put_chinese_text(image, gt_text, (5, h - 35), font_size=font_size, color=(255, 128, 0))
         
         if output_path:
             cv2.imwrite(output_path, image)
-            print(f"Saved visualization to {output_path}")
         
         return image
 
@@ -279,7 +350,8 @@ def parse_ccpd_filename(filename: str) -> str:
     return None
 
 
-def evaluate_on_test_set(pipeline, test_dir: str, max_samples: int = None) -> dict:
+def evaluate_on_test_set(pipeline, test_dir: str, max_samples: int = None,
+                         output_dir: str = None, save_visualizations: bool = False) -> dict:
     """
     Evaluate the pipeline on the test set.
     
@@ -287,6 +359,8 @@ def evaluate_on_test_set(pipeline, test_dir: str, max_samples: int = None) -> di
         pipeline: PlateRecognitionPipeline instance
         test_dir: Directory containing test images
         max_samples: Maximum number of samples to evaluate
+        output_dir: Directory to save visualizations
+        save_visualizations: Whether to save visualization images
         
     Returns:
         Evaluation metrics dictionary
@@ -305,6 +379,13 @@ def evaluate_on_test_set(pipeline, test_dir: str, max_samples: int = None) -> di
     
     results = []
     
+    # Create output directories if saving visualizations
+    if save_visualizations and output_dir:
+        os.makedirs(output_dir, exist_ok=True)
+        os.makedirs(os.path.join(output_dir, 'correct'), exist_ok=True)
+        os.makedirs(os.path.join(output_dir, 'wrong'), exist_ok=True)
+        os.makedirs(os.path.join(output_dir, 'not_detected'), exist_ok=True)
+    
     for img_file in tqdm(image_files, desc="Evaluating"):
         img_path = os.path.join(test_dir, img_file)
         
@@ -318,23 +399,43 @@ def evaluate_on_test_set(pipeline, test_dir: str, max_samples: int = None) -> di
         # Run inference
         result = pipeline.process_image(img_path)
         
+        is_correct = False
+        is_detected = False
+        pred_plate = None
+        
         if result.get('plates'):
+            is_detected = True
             detection_correct += 1
             pred_plate = result['plates'][0].get('plate_number', '')
             
             if pred_plate == gt_plate:
                 recognition_correct += 1
+                is_correct = True
             elif pred_plate and len(pred_plate) >= 5:
                 # Check partial match (at least 5 characters)
                 matches = sum(1 for p, g in zip(pred_plate, gt_plate) if p == g)
                 if matches >= 5:
                     partial_correct += 1
         
+        # Save visualization
+        if save_visualizations and output_dir:
+            if is_correct:
+                vis_dir = os.path.join(output_dir, 'correct')
+            elif is_detected:
+                vis_dir = os.path.join(output_dir, 'wrong')
+            else:
+                vis_dir = os.path.join(output_dir, 'not_detected')
+            
+            vis_path = os.path.join(vis_dir, img_file)
+            pipeline.visualize_result(img_path, result, vis_path, 
+                                      gt_plate=gt_plate, show_comparison=True)
+        
         results.append({
             'image': img_file,
             'ground_truth': gt_plate,
-            'prediction': result['plates'][0].get('plate_number') if result.get('plates') else None,
-            'detected': len(result.get('plates', [])) > 0
+            'prediction': pred_plate,
+            'detected': is_detected,
+            'correct': is_correct
         })
     
     metrics = {
@@ -367,6 +468,8 @@ def main():
                        help='Test image directory')
     parser.add_argument('--max_samples', type=int, default=None,
                        help='Maximum samples for evaluation')
+    parser.add_argument('--save_vis', action='store_true',
+                       help='Save visualization images during evaluation')
     parser.add_argument('--device', type=str, default='cuda:0', help='Device')
     parser.add_argument('--conf_threshold', type=float, default=0.5,
                        help='Detection confidence threshold')
@@ -386,8 +489,10 @@ def main():
     if args.evaluate:
         # Evaluation mode
         print(f"\nEvaluating on test set: {args.test_dir}")
+        print(f"Save visualizations: {args.save_vis}")
         metrics, results = evaluate_on_test_set(
-            pipeline, args.test_dir, args.max_samples
+            pipeline, args.test_dir, args.max_samples,
+            output_dir=args.output_dir, save_visualizations=args.save_vis
         )
         
         print("\n" + "="*50)
@@ -404,6 +509,8 @@ def main():
             with open(os.path.join(args.output_dir, 'evaluation_results.json'), 'w') as f:
                 json.dump({'metrics': metrics, 'results': results}, f, indent=2, ensure_ascii=False)
             print(f"\nResults saved to {args.output_dir}/evaluation_results.json")
+            if args.save_vis:
+                print(f"Visualizations saved to {args.output_dir}/[correct|wrong|not_detected]/")
     
     elif args.image:
         # Single image mode
