@@ -29,6 +29,7 @@ HyperLPR3 TensorRT 部署推理脚本
 """
 
 import argparse
+import math
 import os
 import sys
 import time
@@ -49,12 +50,20 @@ except ImportError:
     print("Warning: TensorRT not available, falling back to ONNX Runtime")
 
 
-# 车牌字符集 (来自 HyperLPR3 tokenize.py)
-PLATE_CHARS = [
-    "blank", "'", "0", "1", "2", "3", "4", "5", "6", "7", "8", "9", 
-    "A", "B", "C", "D", "E", "F", "G", "H", "J", "K", "L", "M", "N", "O", "P", "Q", "R", "S", "T", "U", "V", "W", "X", "Y", "Z", 
-    "云", "京", "冀", "吉", "学", "宁", "川", "挂", "新", "晋", "桂", "民", "沪", "津", "浙", "渝", "港", "湘", "琼", "甘", "皖", "粤", "航", "苏", "蒙", "藏", "警", "豫", "贵", "赣", "辽", "鄂", "闽", "陕", "青", "鲁", "黑", "领", "使", "澳",
-]
+# 车牌字符集 (直接从 HyperLPR3 导入)
+try:
+    from hyperlpr3.common.tokenize import token as PLATE_CHARS
+except ImportError:
+    # Fallback if hyperlpr3 not installed
+    PLATE_CHARS = [
+        "blank", "'", "0", "1", "2", "3", "4", "5", "6", "7", "8", "9", 
+        "A", "B", "C", "D", "E", "F", "G", "H", "J", "K", "L", "M", "N", 
+        "O", "P", "Q", "R", "S", "T", "U", "V", "W", "X", "Y", "Z", 
+        "云", "京", "冀", "吉", "学", "宁", "川", "挂", "新", "晋", "桂", "民", 
+        "沪", "津", "浙", "渝", "港", "湘", "琼", "甘", "皖", "粤", "航", "苏", 
+        "蒙", "藏", "警", "豫", "贵", "赣", "辽", "鄂", "闽", "陕", "青", "鲁", 
+        "黑", "领", "使", "澳",
+    ]
 
 # 车牌类型
 PLATE_TYPES = {
@@ -290,62 +299,86 @@ class PlateRecognizerTRT:
     
     def preprocess_rec(self, plate_img: np.ndarray) -> np.ndarray:
         """
-        识别模型预处理
+        识别模型预处理 (与 HyperLPR3 encode_images 一致)
         
         Args:
-            plate_img: 裁剪的车牌图像
+            plate_img: 裁剪的车牌图像 (BGR)
             
         Returns:
-            预处理后的图像
+            预处理后的图像 [1, 3, 48, 160]
         """
-        # Resize to 160x48
-        img = cv2.resize(plate_img, (160, 48))
+        # Target dimensions
+        imgH, imgW = 48, 160
+        limited_max_width = 160
+        limited_min_width = 48
         
-        # BGR to RGB, normalize
-        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-        img = img.astype(np.float32) / 255.0
+        h, w = plate_img.shape[:2]
+        wh_ratio = w / float(h)
         
-        # 标准化
-        mean = np.array([0.485, 0.456, 0.406])
-        std = np.array([0.229, 0.224, 0.225])
-        img = (img - mean) / std
+        # Calculate dynamic width while maintaining aspect ratio
+        max_wh_ratio = max(wh_ratio, imgW / imgH)
+        target_w = int(imgH * max_wh_ratio)
+        target_w = max(min(target_w, limited_max_width), limited_min_width)
         
-        # HWC to CHW
-        img = img.transpose(2, 0, 1)
-        img = np.expand_dims(img, 0)
+        # Calculate resized width
+        ratio_imgH = math.ceil(imgH * wh_ratio)
+        ratio_imgH = max(ratio_imgH, limited_min_width)
+        if ratio_imgH > target_w:
+            resized_w = target_w
+        else:
+            resized_w = int(ratio_imgH)
         
-        return img
+        # Resize image (BGR input, no color conversion)
+        resized_image = cv2.resize(plate_img, (resized_w, imgH))
+        
+        # Normalize: (img - 127.5) / 127.5, then transpose to CHW
+        resized_image = resized_image.astype(np.float32)
+        resized_image = (resized_image.transpose((2, 0, 1)) - 127.5) / 127.5
+        
+        # Zero-padding to target width
+        padding_im = np.zeros((3, imgH, imgW), dtype=np.float32)
+        padding_im[:, :, 0:resized_w] = resized_image
+        
+        return np.expand_dims(padding_im, 0)
     
     def decode_plate(self, output: np.ndarray) -> tuple:
         """
-        解码车牌识别结果
+        解码车牌识别结果 (与 HyperLPR3 decode 一致)
         
         Args:
-            output: 模型输出 (CTC logits)
+            output: 模型输出 [1, seq_len, num_classes]
             
         Returns:
             (车牌号, 置信度)
         """
-        # output shape: [1, seq_len, num_classes]
-        output = output.squeeze()
+        # output shape: [1, seq_len, num_classes] -> [seq_len, num_classes]
+        prod = output.squeeze()
         
-        # 取 argmax
-        indices = np.argmax(output, axis=-1)
+        # CTC 解码
+        indices = np.argmax(prod, axis=-1)  # [seq_len]
+        max_probs = np.max(prod, axis=-1)   # [seq_len]
         
-        # CTC 解码（去重和去空白）
+        # CTC 解码（去重和去 blank）
+        # ignored_tokens = [0] (blank)
         plate_chars = []
         confidences = []
         prev_idx = -1
         
         for i, idx in enumerate(indices):
-            if idx != 0 and idx != prev_idx:  # 0 是空白符
-                if idx < len(PLATE_CHARS):
-                    plate_chars.append(PLATE_CHARS[idx])
-                    confidences.append(float(np.max(output[i])))
+            # Skip blank (idx == 0) and duplicates
+            if idx == 0:
+                prev_idx = idx
+                continue
+            if idx == prev_idx:
+                continue
+            
+            if idx < len(PLATE_CHARS):
+                plate_chars.append(PLATE_CHARS[int(idx)])
+                confidences.append(float(max_probs[i]))
             prev_idx = idx
         
         plate_number = "".join(plate_chars)
-        avg_conf = np.mean(confidences) if confidences else 0.0
+        avg_conf = float(np.mean(confidences)) if confidences else 0.0
         
         return plate_number, avg_conf
     
