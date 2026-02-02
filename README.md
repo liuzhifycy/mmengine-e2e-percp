@@ -121,6 +121,53 @@ except ImportError:
 
 ## 项目结构
 
+### 整体基础结构
+
+```
+mmengine-lite/
+├── configs/                    # 配置文件
+│   ├── _base_/                # 基础配置
+│   │   ├── models/            # 模型配置
+│   │   ├── datasets/          # 数据集配置
+│   │   ├── schedules/         # 训练策略配置
+│   │   └── default_runtime.py # 默认运行时配置
+│   ├── retinanet/             # RetinaNet 完整配置 (2D检测)
+│   ├── pointpillars/          # PointPillars 完整配置 (3D检测, 纯mmlite实现)
+│   ├── pointpillars_mmdet3d/  # PointPillars 混合配置 (mmdet3d模型+mmlite数据集)
+│   └── custom/                # 自定义模型配置示例
+├── mmlite/                    # 核心包
+│   ├── datasets/              # 数据集模块
+│   │   ├── coco_dataset.py    # COCO 2D数据集
+│   │   ├── kitti_dataset.py   # KITTI 3D数据集 (兼容mmdet3d)
+│   │   └── pipelines/         # 数据处理流水线
+│   ├── models/                # 模型模块
+│   │   ├── detectors3d/       # 3D检测器 (PointPillars等)
+│   │   ├── voxel_encoders/    # 体素编码器
+│   │   ├── backbones3d/       # 3D骨干网络
+│   │   ├── dense_heads3d/     # 3D检测头
+│   │   └── custom/            # 自定义 Backbone/Head 示例
+│   ├── engine/                # 训练引擎
+│   └── evaluation/            # 评估指标
+│       └── kitti_metric.py    # KITTI 3D评估
+├── tools/                     # 工具脚本
+│   ├── train.py               # 训练入口
+│   ├── test.py                # 测试入口
+│   ├── visualize.py           # 可视化工具
+│   ├── export_onnx.py         # ONNX 导出
+│   └── data_converter/        # 数据转换工具
+├── deploy/                    # 部署工具
+├── data/                      # 数据目录
+│   ├── coco/                  # COCO数据集
+│   └── kitti/                 # KITTI数据集
+├── tests/                     # 单元测试
+├── scripts/                   # Shell 脚本
+├── requirements.txt
+├── setup.py
+└── README.md
+```
+
+### 适配yolo结构
+
 ```
 mmengine-lite/
 ├── configs/                    # 配置文件
