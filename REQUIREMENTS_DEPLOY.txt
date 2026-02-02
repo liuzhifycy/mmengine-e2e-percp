@@ -1,0 +1,30 @@
+# E2E_HZTK Deployment Environment Requirements
+
+To run the deployed TensorRT engines on a target machine, ensure the following requirements are met.
+
+## 1. System Requirements
+*   **Operating System:** Linux (Ubuntu 20.04 or 22.04 recommended)
+*   **GPU:** NVIDIA GPU with CUDA Compute Capability >= 6.0
+*   **Drivers:** NVIDIA Driver compatible with CUDA 11.8 or 12.x
+
+## 2. Python Environment
+*   **Python Version:** >= 3.8
+
+## 3. Python Dependencies
+Install the required packages using pip:
+
+```bash
+pip install numpy opencv-python tensorrt pycuda
+```
+
+*Note: `tensorrt` installation via pip requires a compatible CUDA version on the host. If pip installation fails, consider installing TensorRT from the NVIDIA developer website or using an NVIDIA container.*
+
+## 4. TensorRT Compatibility
+Ensure the TensorRT version on the target machine matches the version used to export the engines (or is compatible).
+*   **Exported with TensorRT Version:** (Check your export log, e.g., 8.6.x or 10.x)
+*   **Engine File Compatibility:** TensorRT engines are hardware-specific. An engine built on an RTX 3090 generally will NOT run on an RTX 4090 or T4. You should export the ONNX model and build the engine on the target hardware.
+
+## 5. Deployment Files
+Copy the following files to the target machine:
+1.  **Deployment Script:** `tools/plate_recognition/deploy_e2e_hztk_trt.py`
+2.  **Engine Files:** The contents of `exports/e2e_hztk/` (if hardware matches) OR the ONNX files to rebuild engines.

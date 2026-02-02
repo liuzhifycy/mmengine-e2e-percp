@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 """
-HyperLPR3 TensorRT 部署推理脚本
+E2E_HZTK TensorRT 部署推理脚本
 
 使用 TensorRT 引擎进行车牌识别推理，支持：
 - 车牌检测 (y5fu_640x / y5fu_320x)
@@ -9,20 +9,20 @@ HyperLPR3 TensorRT 部署推理脚本
 
 使用方法:
     # 单张图片推理
-    python tools/plate_recognition/deploy_hyperlpr3_trt.py \
+    python tools/plate_recognition/deploy_e2e_hztk_trt.py \
         --image path/to/image.jpg \
-        --engine-dir exports/hyperlpr3
+        --engine-dir exports/e2e_hztk
     
     # 批量推理
-    python tools/plate_recognition/deploy_hyperlpr3_trt.py \
+    python tools/plate_recognition/deploy_e2e_hztk_trt.py \
         --image-dir path/to/images \
-        --engine-dir exports/hyperlpr3 \
+        --engine-dir exports/e2e_hztk \
         --output-dir output/
     
     # 性能测试
-    python tools/plate_recognition/deploy_hyperlpr3_trt.py \
+    python tools/plate_recognition/deploy_e2e_hztk_trt.py \
         --benchmark \
-        --engine-dir exports/hyperlpr3
+        --engine-dir exports/e2e_hztk
 
 依赖:
     pip install tensorrt pycuda opencv-python numpy
@@ -50,20 +50,16 @@ except ImportError:
     print("Warning: TensorRT not available, falling back to ONNX Runtime")
 
 
-# 车牌字符集 (直接从 HyperLPR3 导入)
-try:
-    from hyperlpr3.common.tokenize import token as PLATE_CHARS
-except ImportError:
-    # Fallback if hyperlpr3 not installed
-    PLATE_CHARS = [
-        "blank", "'", "0", "1", "2", "3", "4", "5", "6", "7", "8", "9", 
-        "A", "B", "C", "D", "E", "F", "G", "H", "J", "K", "L", "M", "N", 
-        "O", "P", "Q", "R", "S", "T", "U", "V", "W", "X", "Y", "Z", 
-        "云", "京", "冀", "吉", "学", "宁", "川", "挂", "新", "晋", "桂", "民", 
-        "沪", "津", "浙", "渝", "港", "湘", "琼", "甘", "皖", "粤", "航", "苏", 
-        "蒙", "藏", "警", "豫", "贵", "赣", "辽", "鄂", "闽", "陕", "青", "鲁", 
-        "黑", "领", "使", "澳",
-    ]
+# 车牌字符集
+PLATE_CHARS = [
+    "blank", "'", "0", "1", "2", "3", "4", "5", "6", "7", "8", "9", 
+    "A", "B", "C", "D", "E", "F", "G", "H", "J", "K", "L", "M", "N", 
+    "O", "P", "Q", "R", "S", "T", "U", "V", "W", "X", "Y", "Z", 
+    "云", "京", "冀", "吉", "学", "宁", "川", "挂", "新", "晋", "桂", "民", 
+    "沪", "津", "浙", "渝", "港", "湘", "琼", "甘", "皖", "粤", "航", "苏", 
+    "蒙", "藏", "警", "豫", "贵", "赣", "辽", "鄂", "闽", "陕", "青", "鲁", 
+    "黑", "领", "使", "澳",
+]
 
 # 车牌类型
 PLATE_TYPES = {
@@ -299,7 +295,7 @@ class PlateRecognizerTRT:
     
     def preprocess_rec(self, plate_img: np.ndarray) -> np.ndarray:
         """
-        识别模型预处理 (与 HyperLPR3 encode_images 一致)
+        识别模型预处理
         
         Args:
             plate_img: 裁剪的车牌图像 (BGR)
@@ -343,7 +339,7 @@ class PlateRecognizerTRT:
     
     def decode_plate(self, output: np.ndarray) -> tuple:
         """
-        解码车牌识别结果 (与 HyperLPR3 decode 一致)
+        解码车牌识别结果
         
         Args:
             output: 模型输出 [1, seq_len, num_classes]
@@ -549,8 +545,8 @@ def visualize_result(image: np.ndarray, results: list, output_path: str = None):
 
 
 def main():
-    parser = argparse.ArgumentParser(description='HyperLPR3 TensorRT Deployment')
-    parser.add_argument('--engine-dir', type=str, default='exports/hyperlpr3',
+    parser = argparse.ArgumentParser(description='E2E_HZTK TensorRT Deployment')
+    parser.add_argument('--engine-dir', type=str, default='exports/e2e_hztk',
                         help='TensorRT engine directory')
     parser.add_argument('--image', type=str, help='Single image path')
     parser.add_argument('--image-dir', type=str, help='Image directory for batch inference')

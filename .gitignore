@@ -75,7 +75,6 @@ checkpoints/
 work_dirs/
 exports/
 *.pth
-*.onnx
 *.engine
 *.trt
 *.log
@@ -93,3 +92,17 @@ download_complete.txt
 *.temp
 *.pt
 vis_comparison/
+
+# RKNN and Deployment Artifacts
+rknn_packages/
+rknn_results/
+
+# Results and Visualization
+onnx_results/
+vis_output/
+test_pic/
+
+# Data Collection
+e2e_hztk_deploy_package/collected_jpgs/
+e2e_hztk_deploy_package/img_collect*/
+e2e_hztk_deploy_package/results*/

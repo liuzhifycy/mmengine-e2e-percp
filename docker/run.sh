@@ -157,19 +157,33 @@ fi
 
 # 构建 GPU 参数
 GPU_ARGS=""
+NVIDIA_VOLUME_ARGS=""
 if [ "$USE_GPU" = true ]; then
     if [ "$CONTAINER_ENGINE" = "podman" ]; then
-        # Podman 使用 CDI (Container Device Interface) 或 --device
-        if [ -d "/dev/nvidia0" ] || [ -c "/dev/nvidia0" ]; then
-            # 检查是否有 nvidia-container-toolkit for podman
-            if command -v nvidia-ctk &> /dev/null; then
+        # Podman GPU 支持
+        if [ -c "/dev/nvidia0" ]; then
+            # 检查 Podman 版本是否支持 CDI (4.1.0+)
+            PODMAN_VERSION=$(podman --version | grep -oP '\d+\.\d+' | head -1)
+            PODMAN_MAJOR=$(echo "$PODMAN_VERSION" | cut -d. -f1)
+            
+            if [ "$PODMAN_MAJOR" -ge 4 ] && command -v nvidia-ctk &> /dev/null && [ -f /etc/cdi/nvidia.yaml ]; then
+                # Podman 4.1+ 支持 CDI
                 GPU_ARGS="--device nvidia.com/gpu=all"
             else
-                # 手动挂载 NVIDIA 设备
-                GPU_ARGS="--device /dev/nvidia0 --device /dev/nvidiactl --device /dev/nvidia-uvm"
-                # 添加所有 GPU 设备
-                for dev in /dev/nvidia[0-9]*; do
-                    [ -e "$dev" ] && GPU_ARGS="$GPU_ARGS --device $dev"
+                # 旧版本 Podman (3.x) - GPU 支持有限
+                echo -e "${YELLOW}警告: Podman ${PODMAN_VERSION} 不完全支持 GPU${NC}"
+                echo -e "${YELLOW}建议升级到 Podman 4.1+ 以获得完整的 GPU 支持${NC}"
+                echo -e "${YELLOW}或使用本地 conda 环境运行训练${NC}"
+                echo ""
+                
+                GPU_ARGS=""
+                # 挂载所有 NVIDIA 设备
+                for dev in /dev/nvidia*; do
+                    [ -c "$dev" ] && GPU_ARGS="$GPU_ARGS --device $dev"
+                done
+                # 挂载 DRI 设备 (仅字符设备，排除目录)
+                for dev in /dev/dri/card* /dev/dri/renderD*; do
+                    [ -c "$dev" ] && GPU_ARGS="$GPU_ARGS --device $dev"
                 done
             fi
             GPU_ARGS="$GPU_ARGS --security-opt=label=disable"

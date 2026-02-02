@@ -1,10 +1,10 @@
 #!/usr/bin/env python
 """
-HyperLPR3 部署导出工具
+E2E_HZTK 部署导出工具
 
-将 HyperLPR3 的 ONNX 模型复制到项目目录，并可选择转换为 TensorRT 引擎。
+将 E2E_HZTK 的 ONNX 模型复制到项目目录，并可选择转换为 TensorRT 引擎。
 
-HyperLPR3 包含以下模型:
+E2E_HZTK 包含以下模型:
 - y5fu_640x_sim.onnx: 车牌检测模型 (YOLOv5-based, 640x640)
 - y5fu_320x_sim.onnx: 车牌检测模型 (YOLOv5-based, 320x320, 更快)
 - rpv3_mdict_160_r3.onnx: 车牌识别模型 (OCR)
@@ -12,13 +12,13 @@ HyperLPR3 包含以下模型:
 
 使用方法:
     # 复制 ONNX 模型到项目目录
-    python tools/plate_recognition/export_hyperlpr3.py --output-dir exports/hyperlpr3
+    python tools/plate_recognition/export_e2e_hztk.py --output-dir exports/e2e_hztk
     
     # 同时转换为 TensorRT FP16 引擎
-    python tools/plate_recognition/export_hyperlpr3.py --output-dir exports/hyperlpr3 --trt --fp16
+    python tools/plate_recognition/export_e2e_hztk.py --output-dir exports/e2e_hztk --trt --fp16
     
     # 仅复制指定模型
-    python tools/plate_recognition/export_hyperlpr3.py --output-dir exports/hyperlpr3 --models det_640x rec
+    python tools/plate_recognition/export_e2e_hztk.py --output-dir exports/e2e_hztk --models det_640x rec
 
 依赖:
     pip install hyperlpr3 onnx
@@ -32,8 +32,8 @@ import sys
 from pathlib import Path
 
 
-# HyperLPR3 模型配置
-HYPERLPR3_MODELS = {
+# E2E_HZTK 模型配置
+E2E_HZTK_MODELS = {
     'det_640x': {
         'filename': 'y5fu_640x_sim.onnx',
         'description': '车牌检测模型 (640x640, 高精度)',
@@ -57,14 +57,14 @@ HYPERLPR3_MODELS = {
 }
 
 
-def get_hyperlpr3_model_dir():
-    """获取 HyperLPR3 模型目录"""
+def get_e2e_hztk_model_dir():
+    """获取 E2E_HZTK 模型目录"""
     home = os.environ.get('HOME', os.path.expanduser('~'))
     model_dir = os.path.join(home, '.hyperlpr3', '20230229', 'onnx')
     
     if not os.path.exists(model_dir):
-        print(f"Error: HyperLPR3 model directory not found: {model_dir}")
-        print("Please run HyperLPR3 at least once to download models:")
+        print(f"Error: E2E_HZTK model directory not found: {model_dir}")
+        print("Please run E2E_HZTK at least once to download models:")
         print("  python -c \"import hyperlpr3; lpr = hyperlpr3.LicensePlateCatcher(); print('Models downloaded')\"")
         return None
     
@@ -73,7 +73,7 @@ def get_hyperlpr3_model_dir():
 
 def copy_onnx_models(output_dir: str, models: list = None):
     """
-    复制 HyperLPR3 ONNX 模型到指定目录
+    复制 E2E_HZTK ONNX 模型到指定目录
     
     Args:
         output_dir: 输出目录
@@ -82,14 +82,14 @@ def copy_onnx_models(output_dir: str, models: list = None):
     Returns:
         复制的模型路径列表
     """
-    model_dir = get_hyperlpr3_model_dir()
+    model_dir = get_e2e_hztk_model_dir()
     if model_dir is None:
         return []
     
     os.makedirs(output_dir, exist_ok=True)
     
     if models is None:
-        models = list(HYPERLPR3_MODELS.keys())
+        models = list(E2E_HZTK_MODELS.keys())
     
     copied_models = []
     
@@ -97,11 +97,11 @@ def copy_onnx_models(output_dir: str, models: list = None):
     print("-" * 50)
     
     for model_key in models:
-        if model_key not in HYPERLPR3_MODELS:
+        if model_key not in E2E_HZTK_MODELS:
             print(f"Warning: Unknown model '{model_key}', skipping")
             continue
         
-        model_info = HYPERLPR3_MODELS[model_key]
+        model_info = E2E_HZTK_MODELS[model_key]
         src_path = os.path.join(model_dir, model_info['filename'])
         dst_path = os.path.join(output_dir, model_info['filename'])
         
@@ -228,7 +228,7 @@ def create_deployment_config(output_dir: str, models: list):
     
     config = {
         'version': '1.0',
-        'framework': 'HyperLPR3',
+        'framework': 'E2E_HZTK',
         'models': {}
     }
     
@@ -253,8 +253,8 @@ def create_deployment_config(output_dir: str, models: list):
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Export HyperLPR3 models for deployment')
-    parser.add_argument('--output-dir', type=str, default='exports/hyperlpr3',
+    parser = argparse.ArgumentParser(description='Export E2E_HZTK models for deployment')
+    parser.add_argument('--output-dir', type=str, default='exports/e2e_hztk',
                         help='Output directory for exported models')
     parser.add_argument('--models', type=str, nargs='+', default=None,
                         choices=['det_640x', 'det_320x', 'rec', 'cls'],
@@ -274,9 +274,9 @@ def main():
     
     # 列出可用模型
     if args.list:
-        print("\nAvailable HyperLPR3 models:")
+        print("\nAvailable E2E_HZTK models:")
         print("-" * 50)
-        for key, info in HYPERLPR3_MODELS.items():
+        for key, info in E2E_HZTK_MODELS.items():
             print(f"  {key}:")
             print(f"    - File: {info['filename']}")
             print(f"    - Description: {info['description']}")
