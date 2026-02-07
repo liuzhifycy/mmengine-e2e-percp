@@ -106,3 +106,54 @@ test_pic/
 e2e_hztk_deploy_package/collected_jpgs/
 e2e_hztk_deploy_package/img_collect*/
 e2e_hztk_deploy_package/results*/
+
+# Plate Recognition Datasets (large data, not for git)
+PIC_dataset/
+PIC_ccpd_format/
+PIC_ccpd_format_fixed/
+PIC_ccpd_format_full/
+finetune_data/
+
+# Recognition Output Directories
+recognition_demo_output/
+recognition_e2e_expand10/
+recognition_e2e_simple/
+recognition_vis/
+roi_demo_output/
+roi_eval_output/
+roi_eval_output_v2/
+roi_eval_output_v3/
+roi_eval_output_v4/
+
+# Finetune Intermediate Files
+tools/plate_recognition/finetune/checkpoints/stage1_epoch*.pth
+tools/plate_recognition/finetune/checkpoints/stage1_latest.pth
+tools/plate_recognition/finetune/runs/
+tools/plate_recognition/finetune/__pycache__/
+
+# Keep these pth files (use git add -f if needed):
+# - tools/plate_recognition/finetune/checkpoints/stage1_best.pth
+# - tools/plate_recognition/finetune/checkpoints/hztk_rec_original.pth
+
+# Debug/Intermediate ONNX Files
+e2e_hztk_deploy_package/check*.onnx
+e2e_hztk_deploy_package/plate_rec_finetuned.onnx
+e2e_hztk_deploy_package/hztk_rec_original.onnx
+
+# Debug Test Scripts
+e2e_hztk_deploy_package/test_det.py
+e2e_hztk_deploy_package/test_det2.py
+e2e_hztk_deploy_package/test_det3.py
+e2e_hztk_deploy_package/test_det_nhwc.py
+e2e_hztk_deploy_package/test_compare.py
+
+# Duplicate/Backup Files
+*（复件）*
+
+# Python Wheels (should not be in repo)
+*.whl
+
+# YOLO Migration Debug Scripts
+verify_yolo.py
+compare_outputs.py
+visualize_comparison.py

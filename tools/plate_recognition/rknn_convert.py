@@ -27,8 +27,8 @@ MODELS = {
         'input_shape': [1, 3, 640, 640],  # NCHW
     },
     'rec': {
-        'onnx': 'hztk_rec_finetuned_v2.onnx',
-        'rknn': 'hztk_rec_finetuned_v2.rknn',
+        'onnx': 'hztk_rec.onnx',
+        'rknn': 'hztk_rec_v2.rknn',
         'input_name': 'data',
         'input_shape': [1, 3, 48, 160],  # NCHW
     },
