@@ -9,6 +9,7 @@
 - **2D 检测**: 支持 RetinaNet 等经典 2D 检测模型 (基于 mmdet)
 - **3D 检测**: 支持 PointPillars 等 3D 点云检测模型
 - **YOLO11 集成**: 支持 YOLO11m 的原生复现与官方权重无损迁移 (Re-implementation)
+- **车牌识别微调**: 支持 HyperLPR3 模型的 PyTorch 微调、ONNX 导出和 RKNN 部署 (RK3588)
 - **mmdet3d 混合模式**: 可使用 mmdet3d 的 CUDA 加速模型 + mmlite 的数据集
 - **灵活配置**: 基于 mmengine 配置系统，支持配置继承和覆盖
 - **分布式支持**: 支持单GPU和多GPU分布式训练
@@ -199,8 +200,24 @@ mmengine-lite/
 │   │   └── ...
 ├── tools/                     # 工具脚本
 │   ├── train.py               # 训练入口
-│   ├── convert_yolo11_weights.py # YOLO11 权重转换脚本 (New)
-│   └── ...
+│   ├── convert_yolo11_weights.py # YOLO11 权重转换脚本
+│   └── plate_recognition/     # 车牌识别工具 (New)
+│       ├── finetune/          # 微调训练
+│       │   ├── finetune_plate_rec.py    # 微调训练脚本
+│       │   ├── export_onnx.py           # ONNX 导出
+│       │   ├── prepare_finetune_data.py # 数据准备
+│       │   ├── evaluate_green_plates.py # 绿牌评估
+│       │   └── checkpoints/             # 预训练权重
+│       │       ├── hztk_rec_original.pth  # 原始 ONNX 转换权重
+│       │       └── stage1_best.pth        # 微调后最佳权重
+│       ├── lightweight_plate_recognizer.py # 轻量 ARM 识别器
+│       ├── roi_plate_preprocessor.py      # ROI 预处理
+│       ├── rknn_convert.py                # RKNN 转换
+│       └── evaluate_onnx_dataset.py       # 数据集评估
+├── e2e_hztk_deploy_package/   # RKNN 部署包 (New)
+│   ├── hztk_rec_finetuned_v2.onnx  # 微调后 ONNX 模型
+│   ├── hztk_rec_finetuned_v2.rknn  # 微调后 RKNN 模型
+│   └── rknn_convert_v2.py          # RKNN 转换脚本
 ├── data/                      # 数据目录
 │   ├── coco/                  # COCO数据集
 │   └── kitti/                 # KITTI数据集
@@ -301,6 +318,113 @@ python tools/compare_yolo11_vis.py
 ```
 
 该脚本会随机选取 5 张图片，分别使用两个模型进行推理，并将对比结果（包含检测框可视化和置信度输出）保存在 `vis_comparison/` 目录下。
+
+### 车牌识别微调 (Plate Recognition Finetuning)
+
+基于 HyperLPR3 的 ONNX 模型进行车牌识别微调，支持 PyTorch 训练和 RKNN 部署。
+
+#### 预训练权重
+
+| 文件 | 说明 |
+|------|------|
+| `tools/plate_recognition/finetune/checkpoints/hztk_rec_original.pth` | 原始 ONNX 转换的 PyTorch 权重 |
+| `tools/plate_recognition/finetune/checkpoints/stage1_best.pth` | 微调后最佳权重 |
+| `e2e_hztk_deploy_package/hztk_rec_finetuned_v2.onnx` | 微调后 ONNX 模型 (部署用) |
+| `e2e_hztk_deploy_package/hztk_rec_finetuned_v2.rknn` | 微调后 RKNN 模型 (RK3588 部署) |
+
+#### 1. 准备数据
+
+```bash
+cd tools/plate_recognition/finetune
+
+# 准备微调数据 (从 PIC 数据集 + CCPD2020 绿牌)
+python prepare_finetune_data.py \
+    --pic-annotations ../../../PIC_ccpd_format_full/annotations.json \
+    --ccpd2020-dir ../../../data/ccpd/CCPD2020/ccpd_green \
+    --output-dir ../../../finetune_data \
+    --ccpd-samples 2000 \
+    --val-ratio 0.1
+```
+
+#### 2. 微调训练
+
+```bash
+# 阶段一: 冻结 backbone，只训练 head (推荐先跑这个)
+python finetune_plate_rec.py --stage 1 --epochs 10
+
+# 阶段二: 全参数微调 (可选)
+python finetune_plate_rec.py --stage 2 --epochs 20 --resume checkpoints/stage1_best.pth
+
+# TensorBoard 监控
+tensorboard --logdir runs/
+```
+
+#### 3. 导出 ONNX
+
+```bash
+# 将微调权重注入原始 ONNX 模型
+python export_onnx.py \
+    --checkpoint checkpoints/stage1_best.pth \
+    --output finetuned_hztk_rec.onnx \
+    --compare  # 对比原始模型和微调模型
+```
+
+#### 4. RKNN 转换 (RK3588)
+
+```bash
+cd ../../../e2e_hztk_deploy_package
+
+# 转换为 RKNN 格式
+python rknn_convert_v2.py --model rec
+```
+
+#### 5. 评估
+
+```bash
+# 评估绿牌识别率提升
+cd tools/plate_recognition/finetune
+python evaluate_green_plates.py
+
+# CCPD 数据集完整评测
+cd ../../../
+python eval_ccpd.py
+```
+
+#### RK3588 NPU 部署推理
+
+```bash
+cd tools/plate_recognition
+
+# 单张图片推理
+python deploy_rknn_op_track.py --image ./test.jpg
+
+# 批量图片目录
+python deploy_rknn_op_track.py --image-dir ./test_pic --output-dir ./results
+
+# 本地视频文件
+python deploy_rknn_op_track.py --video ./test_video.mp4
+
+# RTSP 视频流
+python deploy_rknn_op_track.py --rtsp "rtsp://admin:password@ip:554/stream1"
+
+# 性能测试
+python deploy_rknn_op_track.py --benchmark
+```
+
+#### 轻量级推理 (ARM CPU)
+
+```bash
+cd tools/plate_recognition
+
+# 单张图片识别
+python lightweight_plate_recognizer.py --image plate_crop.jpg
+
+# 端到端 (原图 + ROI)
+python lightweight_plate_recognizer.py --e2e --image full_image.jpg --roi 520,384,1069,497
+
+# CCPD 评估
+python lightweight_plate_recognizer.py --eval-ccpd data/ccpd/processed/recognition/test
+```
 
 ### 2D 检测训练 (RetinaNet)
 
